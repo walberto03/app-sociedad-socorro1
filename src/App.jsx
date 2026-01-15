@@ -3,10 +3,11 @@ import {
   Users, Heart, Search, Plus, Save, X, Activity, 
   Calendar, CheckCircle, Smile, Award, Phone, User, 
   PieChart as PieIcon, BarChart3, ListFilter, ChevronDown, Check,
-  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, Clock, CheckSquare, XSquare, Filter
+  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, LogOut, Lock, AlertCircle, Camera
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "firebase/auth";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   PieChart, Pie, Legend 
@@ -23,12 +24,22 @@ const firebaseConfig = {
   measurementId: "G-8D40HXEL4D"
 };
 
+// --- LISTA DE CORREOS AUTORIZADOS (EDITA ESTO) ---
+const ALLOWED_EMAILS = [
+  "elisaviaca@gmail.com", 
+  "cneth151@gmail.com",
+  "lizzmontoya.1993@gmail.com",
+  "wallmontenegrox@gmail.com",
+  ""
+];
+
 // Inicialización segura
-let db;
+let db, auth;
 try {
   if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
+    auth = getAuth(app);
   } else {
     console.log("Modo Demo: Firebase no configurado aún.");
   }
@@ -72,18 +83,39 @@ const processMentions = (data, field) => {
     .slice(0, 5);
 };
 
-// Calcula días restantes
 const getDaysRemaining = (dateString) => {
   if (!dateString) return 999;
-  const target = new Date(dateString + 'T00:00:00'); // Asegurar hora local
+  const target = new Date(dateString + 'T00:00:00'); 
   const now = new Date();
   now.setHours(0,0,0,0);
   const diffTime = target - now;
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
-// --- COMPONENTES UI ---
+// Función para comprimir imagen a Base64
+const compressImage = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 300; // Ancho máximo para no saturar Firestore
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compresión JPEG al 70%
+      };
+    };
+    reader.onerror = error => reject(error);
+  });
+};
 
+// --- COMPONENTES UI ---
 const Badge = ({ children, color = "bg-blue-100 text-blue-800" }) => (
   <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
     {children}
@@ -227,17 +259,51 @@ const SisterSelect = ({ label, sistersList, currentSisterId, value, onChange, mu
   );
 };
 
-// --- GESTOR DE COMPROMISOS (MODAL) ---
+// --- LOGIN COMPONENT ---
+const LoginScreen = ({ onLogin, error }) => {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-xl text-center">
+        <div className="w-20 h-20 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Heart size={40} className="text-pink-600 fill-pink-600" />
+        </div>
+        <h1 className="text-3xl font-bold text-slate-800 mb-2">Sociedad de Socorro</h1>
+        <p className="text-slate-500 mb-8">Gestión de ministración y progreso personal</p>
+        
+        {error ? (
+           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8 text-left flex gap-3 animate-in fade-in">
+             <AlertCircle className="text-red-500 shrink-0" size={24}/>
+             <div>
+               <p className="font-bold text-red-800 text-sm">Acceso Denegado</p>
+               <p className="text-xs text-red-700 mt-1">{error}</p>
+             </div>
+           </div>
+        ) : (
+           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8 text-left flex gap-3">
+             <Lock className="text-blue-500 shrink-0" size={24}/>
+             <p className="text-sm text-blue-800">
+               Esta aplicación es privada. Solo las líderes autorizadas pueden acceder a los datos.
+             </p>
+           </div>
+        )}
+
+        <button 
+          onClick={onLogin}
+          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
+        >
+          <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="G" className="w-6 h-6" />
+          Ingresar con Google
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- GESTOR DE COMPROMISOS ---
 const CommitmentModal = ({ sister, onClose, onSave }) => {
-  const [status, setStatus] = useState(null); // 'fulfilled' | 'unfulfilled'
+  const [status, setStatus] = useState(null); 
   const [data, setData] = useState({
-    updateCovenant: false, // Update boolean field?
-    nextCovenant: '',
-    nextDate: '',
-    reason: '',
-    actions: '',
-    newDate: '',
-    completionDate: new Date().toISOString().split('T')[0] // Default to today
+    updateCovenant: false, nextCovenant: '', nextDate: '', reason: '', actions: '', newDate: '', completionDate: new Date().toISOString().split('T')[0]
   });
 
   const covenantKeyMap = {
@@ -253,25 +319,18 @@ const CommitmentModal = ({ sister, onClose, onSave }) => {
 
     if (status === 'fulfilled') {
       const doneDate = data.completionDate || today;
-      // 1. Actualizar el booleano si aplica
       if (data.updateCovenant && covenantKeyMap[sister.proximoConvenio]) {
         updates[covenantKeyMap[sister.proximoConvenio]] = true;
       }
-      // 2. Registrar el logro en observaciones con la fecha real
       const log = `${doneDate}: CUMPLIÓ meta de "${sister.proximoConvenio}". \n`;
       updates.observaciones = (sister.observaciones || '') + '\n' + log;
-      // 3. Establecer la nueva meta
       updates.proximoConvenio = data.nextCovenant || '';
       updates.fechaMeta = data.nextDate || '';
-
     } else if (status === 'unfulfilled') {
-      // 1. Reprogramar
       updates.fechaMeta = data.newDate;
-      // 2. Registrar razón y acción en observaciones
       const log = `${today}: REPROGRAMADO "${sister.proximoConvenio}". \nMOTIVO: ${data.reason}. \nACCIONES: ${data.actions}. \n`;
       updates.observaciones = (sister.observaciones || '') + '\n' + log;
     }
-
     onSave(sister.id, updates);
   };
 
@@ -282,67 +341,44 @@ const CommitmentModal = ({ sister, onClose, onSave }) => {
           <h3 className="font-bold text-lg flex items-center gap-2"><Activity size={20}/> Gestionar Compromiso</h3>
           <button onClick={onClose}><X size={20}/></button>
         </div>
-        
         <div className="p-6">
           <div className="mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
             <p className="text-xs text-slate-500 font-bold uppercase mb-1">Meta Actual</p>
             <p className="text-xl font-bold text-slate-800">{sister.proximoConvenio}</p>
-            <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
-              <Calendar size={14}/> Vencimiento: <span className="font-medium">{sister.fechaMeta}</span>
-            </p>
+            <p className="text-sm text-slate-600 flex items-center gap-2 mt-1"><Calendar size={14}/> Vencimiento: <span className="font-medium">{sister.fechaMeta}</span></p>
           </div>
-
           {!status ? (
             <div className="grid grid-cols-2 gap-4">
               <button onClick={() => setStatus('fulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-green-500 hover:bg-green-50 transition group">
-                <div className="bg-green-100 p-3 rounded-full text-green-600 group-hover:bg-green-500 group-hover:text-white transition"><CheckSquare size={32}/></div>
-                <span className="font-bold text-slate-700">¡Se cumplió!</span>
+                <div className="bg-green-100 p-3 rounded-full text-green-600 group-hover:bg-green-500 group-hover:text-white transition"><CheckSquare size={32}/></div><span className="font-bold text-slate-700">¡Se cumplió!</span>
               </button>
               <button onClick={() => setStatus('unfulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 transition group">
-                <div className="bg-orange-100 p-3 rounded-full text-orange-600 group-hover:bg-orange-500 group-hover:text-white transition"><XSquare size={32}/></div>
-                <span className="font-bold text-slate-700">No se cumplió</span>
+                <div className="bg-orange-100 p-3 rounded-full text-orange-600 group-hover:bg-orange-500 group-hover:text-white transition"><XSquare size={32}/></div><span className="font-bold text-slate-700">No se cumplió</span>
               </button>
             </div>
           ) : (
             <div className="space-y-4">
               {status === 'fulfilled' ? (
                 <div className="animate-in slide-in-from-right">
-                  <div className="bg-green-50 text-green-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2">
-                    <CheckCircle size={18}/> ¡Excelente noticia! Actualicemos el historial.
-                  </div>
-                  
-                  {/* NUEVO CAMPO DE FECHA DE CUMPLIMIENTO */}
-                  <InputGroup 
-                    label="Fecha Real de Cumplimiento" 
-                    type="date" 
-                    value={data.completionDate} 
-                    onChange={e => setData({...data, completionDate: e.target.value})} 
-                  />
-                  
+                  <div className="bg-green-50 text-green-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><CheckCircle size={18}/> ¡Excelente noticia! Actualicemos el historial.</div>
+                  <InputGroup label="Fecha Real de Cumplimiento" type="date" value={data.completionDate} onChange={e => setData({...data, completionDate: e.target.value})} />
                   {covenantKeyMap[sister.proximoConvenio] && (
                     <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 mb-4">
                       <input type="checkbox" checked={data.updateCovenant} onChange={e => setData({...data, updateCovenant: e.target.checked})} className="w-5 h-5 accent-pink-600"/>
                       <span className="text-sm">Marcar <b>{sister.proximoConvenio}</b> como realizado en su ficha.</span>
                     </label>
                   )}
-
-                  <h4 className="font-bold text-slate-700 mb-2">¿Cuál es el siguiente paso?</h4>
-                  <InputGroup label="Nueva Meta" name="nextCovenant" value={data.nextCovenant} onChange={e => setData({...data, nextCovenant: e.target.value})} 
-                    options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]}
-                  />
+                  <InputGroup label="Nueva Meta" name="nextCovenant" value={data.nextCovenant} onChange={e => setData({...data, nextCovenant: e.target.value})} options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]}/>
                   <InputGroup label="Fecha para la nueva meta" type="date" value={data.nextDate} onChange={e => setData({...data, nextDate: e.target.value})} />
                 </div>
               ) : (
                 <div className="animate-in slide-in-from-right">
-                  <div className="bg-orange-50 text-orange-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2">
-                    <AlertTriangle size={18}/> Registremos el apoyo necesario.
-                  </div>
+                  <div className="bg-orange-50 text-orange-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><AlertTriangle size={18}/> Registremos el apoyo necesario.</div>
                   <InputGroup label="¿Por qué no se cumplió?" type="textarea" placeholder="Ej: Problemas de salud, falta de transporte..." value={data.reason} onChange={e => setData({...data, reason: e.target.value})} />
-                  <InputGroup label="Acciones de apoyo requeridas" placeholder="Ej: Las ministrantes la visitarán, se buscará transporte..." value={data.actions} onChange={e => setData({...data, actions: e.target.value})} />
+                  <InputGroup label="Acciones de apoyo requeridas" placeholder="Ej: Las ministrantes la visitarán..." value={data.actions} onChange={e => setData({...data, actions: e.target.value})} />
                   <InputGroup label="Nueva Fecha Comprometida" type="date" value={data.newDate} onChange={e => setData({...data, newDate: e.target.value})} />
                 </div>
               )}
-
               <div className="flex gap-2 pt-4">
                 <button onClick={() => setStatus(null)} className="flex-1 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg">Atrás</button>
                 <button onClick={handleSave} className="flex-1 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 shadow-lg">Guardar Cambios</button>
@@ -355,7 +391,7 @@ const CommitmentModal = ({ sister, onClose, onSave }) => {
   );
 };
 
-// --- FORMULARIO PRINCIPAL (Igual que antes) ---
+// --- FORMULARIO PRINCIPAL ACTUALIZADO CON FOTOS ---
 const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
   const [formData, setFormData] = useState(initialData || {
     nombre: '', apellido: '', telefono: '', direccion: '', familia: '',
@@ -363,7 +399,8 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
     amigasCercanas: '', personasExtraña: '', quiereConocer: '',
     bautismo: false, confirmacion: false, sacerdocio: false, familySearch: false,
     obraVicaria: false, bendicionPatriarcal: false, investidura: false, sellamiento: false,
-    proximoConvenio: '', fechaMeta: '', encargadoSeguimiento: '', observaciones: '', llamamiento: ''
+    proximoConvenio: '', fechaMeta: '', encargadoSeguimiento: '', observaciones: '', llamamiento: '',
+    foto: ''
   });
 
   const handleChange = (e) => {
@@ -372,6 +409,20 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
   };
 
   const handleSelectChange = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+
+  // Manejo de carga de imagen
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      try {
+        const base64 = await compressImage(file);
+        setFormData(prev => ({ ...prev, foto: base64 }));
+      } catch (err) {
+        console.error("Error al procesar imagen", err);
+        alert("Hubo un error al procesar la imagen. Intenta con otra.");
+      }
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -384,6 +435,23 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
           <div className="space-y-6">
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Smile size={18}/> Datos Personales</h3>
+              
+              {/* CAMPO DE FOTO */}
+              <div className="flex flex-col items-center mb-6">
+                 <div className="w-24 h-24 rounded-full bg-slate-200 mb-3 overflow-hidden border-2 border-slate-300 relative">
+                    {formData.foto ? (
+                      <img src={formData.foto} alt="Preview" className="w-full h-full object-cover"/>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={40}/></div>
+                    )}
+                 </div>
+                 <label className="cursor-pointer bg-white border border-slate-300 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-2 shadow-sm transition">
+                    <Camera size={16}/> {formData.foto ? "Cambiar Foto" : "Subir Foto"}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                 </label>
+                 <p className="text-[10px] text-slate-400 mt-1 text-center">Formatos: jpg, png (Max. 5MB)</p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <InputGroup label="Nombre" name="nombre" value={formData.nombre} onChange={handleChange} />
                 <InputGroup label="Apellido" name="apellido" value={formData.apellido} onChange={handleChange} />
@@ -438,59 +506,81 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
 
 // --- APP PRINCIPAL ---
 export default function App() {
+  const [user, setUser] = useState(null); // AUTH STATE
+  const [loginError, setLoginError] = useState(null); // ERROR STATE
   const [view, setView] = useState('dashboard'); 
   const [sisters, setSisters] = useState([]);
   const [selectedSister, setSelectedSister] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  // Estado para filtros activos del dashboard
   const [activeFilter, setActiveFilter] = useState({ label: '', fn: null });
-  // Estado para el modal de gestión de compromisos
   const [commitmentSister, setCommitmentSister] = useState(null);
 
   useEffect(() => {
-    if (db) {
-      const unsubscribe = onSnapshot(collection(db, "hermanas"), (snap) => {
-        setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    let unsubscribeAuth = () => {};
+    let unsubscribeFirestore = () => {};
+
+    if (auth) {
+      unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+        if (currentUser) {
+          if (ALLOWED_EMAILS.includes(currentUser.email)) {
+            setUser(currentUser);
+            setLoginError(null);
+            if (db) {
+              const ref = collection(db, "hermanas");
+              unsubscribeFirestore = onSnapshot(ref, (snap) => {
+                setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+              });
+            }
+          } else {
+            await signOut(auth);
+            setUser(null);
+            setLoginError(`El correo ${currentUser.email} no está autorizado para acceder.`);
+          }
+        } else {
+          setUser(null);
+          setSisters([]); 
+        }
       });
-      return () => unsubscribe();
-    } else {
-      setSisters([
-        { id: 1, nombre: 'Ana', apellido: 'Ruiz', investidura: true, hobbies: 'Cocina', proximoConvenio: 'Sellamiento', fechaMeta: new Date().toISOString().split('T')[0], personasExtraña: 'Carla Diaz', quiereConocer: 'Elena Paz' },
-        { id: 2, nombre: 'Carla', apellido: 'Diaz', investidura: false, hobbies: 'Jardinería', proximoConvenio: 'Investidura', fechaMeta: '2024-06-15', quiereConocer: 'Ana Ruiz', encargadoSeguimiento: 'Elena Paz' },
-        { id: 3, nombre: 'Elena', apellido: 'Paz', investidura: true, sellamiento: true, proximoConvenio: 'Ir al Templo' },
-      ]);
     }
+    return () => {
+      unsubscribeAuth();
+      unsubscribeFirestore();
+    };
   }, []);
+
+  const handleLogin = async () => {
+    if(!auth) return;
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error) {
+      console.error("Error al ingresar:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    if(auth) await signOut(auth);
+  };
 
   const handleSave = async (data) => {
     if (db) {
       selectedSister ? await updateDoc(doc(db, "hermanas", selectedSister.id), data) : await addDoc(collection(db, "hermanas"), data);
-    } else {
-      const newItem = { ...data, id: Date.now() };
-      setSisters(prev => selectedSister ? prev.map(s => s.id === selectedSister.id ? newItem : s) : [...prev, newItem]);
-    }
+    } 
     setShowForm(false); setSelectedSister(null);
   };
 
   const handleDelete = async (id) => {
     if(confirm("¿Eliminar registro?")) {
         if(db) await deleteDoc(doc(db, "hermanas", id));
-        else setSisters(prev => prev.filter(s => s.id !== id));
         setView('list');
     }
   };
 
   const handleCommitmentUpdate = async (id, updates) => {
-    if (db) {
-      await updateDoc(doc(db, "hermanas", id), updates);
-    } else {
-      setSisters(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-    }
-    setCommitmentSister(null); // Cerrar modal
+    if (db) await updateDoc(doc(db, "hermanas", id), updates);
+    setCommitmentSister(null);
   };
 
-  // Función para aplicar filtros desde el dashboard
   const applyFilter = (label, filterFn) => {
     setActiveFilter({ label, fn: filterFn });
     setView('list');
@@ -538,6 +628,10 @@ export default function App() {
     return matchesSearch && matchesFilter;
   });
 
+  if (!user && auth) {
+    return <LoginScreen onLogin={handleLogin} error={loginError} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-10">
       <nav className="bg-white border-b border-pink-100 sticky top-0 z-20 px-4 py-3 flex justify-between items-center shadow-sm">
@@ -546,39 +640,49 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight hidden md:block">Sociedad de Socorro</h1>
           <span className="md:hidden font-bold">SS</span>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-4 items-center">
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button onClick={() => setView('dashboard')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${view === 'dashboard' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><BarChart3 size={18} className="inline mr-1"/> Resumen</button>
             <button onClick={() => setView('list')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${view === 'list' || view === 'details' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ListFilter size={18} className="inline mr-1"/> Directorio</button>
           </div>
-          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg ml-2" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
+          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
+          <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
+             <div className="text-right hidden sm:block">
+                <p className="text-xs font-bold text-slate-800">{user?.displayName}</p>
+                <p className="text-[10px] text-slate-500">{user?.email}</p>
+             </div>
+             {user?.photoURL ? <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full border border-pink-200" /> : <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-pink-700 font-bold">{user?.displayName?.[0]}</div>}
+             <button onClick={handleLogout} className="text-slate-400 hover:text-red-500" title="Cerrar Sesión"><LogOut size={18}/></button>
+          </div>
         </div>
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
         {view === 'dashboard' && (
           <div className="animate-in fade-in space-y-6">
-            
-            {/* ALERTAS DE COMPROMISOS */}
             {upcomingCommitments.length > 0 && (
               <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-xl shadow-sm">
                 <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-4">
-                  <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (Alerta de 15 días)
+                  <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (15 días)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {upcomingCommitments.map(s => {
                     const days = getDaysRemaining(s.fechaMeta);
                     return (
                       <div key={s.id} className="bg-white p-4 rounded-lg shadow-sm border border-yellow-100 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="font-bold text-slate-800">{s.nombre} {s.apellido}</span>
-                            <Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>
-                              {days < 0 ? `Venció hace ${Math.abs(days)} días` : `Vence en ${days} días`}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p>
-                          <p className="text-xs text-slate-400 flex items-center gap-1"><User size={12}/> Apoyo: {s.encargadoSeguimiento || 'Sin asignar'}</p>
+                        <div className="flex items-start gap-3">
+                           {/* FOTO EN ALERTAS */}
+                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0">
+                              {s.foto ? <img src={s.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={20}/></div>}
+                           </div>
+                           <div className="w-full">
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="font-bold text-slate-800 leading-tight">{s.nombre} {s.apellido}</span>
+                                <Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{days < 0 ? `${Math.abs(days)}d atraso` : `${days}d`}</Badge>
+                              </div>
+                              <p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p>
+                              <p className="text-xs text-slate-400 flex items-center gap-1"><User size={12}/> {s.encargadoSeguimiento || 'Sin asignar'}</p>
+                           </div>
                         </div>
                         <button onClick={() => setCommitmentSister(s)} className="mt-3 w-full py-2 bg-yellow-100 text-yellow-800 font-bold text-sm rounded hover:bg-yellow-200 transition">Gestionar / Actualizar</button>
                       </div>
@@ -589,22 +693,10 @@ export default function App() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <StatCard 
-                icon={Users} label="Total Hermanas Registradas" value={stats.total} color="bg-pink-100 text-pink-600" 
-                onClick={() => applyFilter('Total Hermanas', () => true)}
-              />
-              <StatCard 
-                icon={Award} label="Hnas Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" 
-                onClick={() => applyFilter('Investidas', s => s.investidura)}
-              />
-              <StatCard 
-                icon={Phone} label="Necesitan Contacto" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" 
-                onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}
-              />
-              <StatCard 
-                icon={Smile} label="Quieren Conocer" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" 
-                onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}
-              />
+              <StatCard icon={Users} label="Total Directorio" value={stats.total} color="bg-pink-100 text-pink-600" onClick={() => applyFilter('Total Hermanas', () => true)}/>
+              <StatCard icon={Award} label="Hnas Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" onClick={() => applyFilter('Investidas', s => s.investidura)}/>
+              <StatCard icon={Phone} label="Necesitan Contacto" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}/>
+              <StatCard icon={Smile} label="Quieren Conocer" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}/>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -643,19 +735,11 @@ export default function App() {
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 12}} />
                         <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} />
-                        <Bar 
-                          dataKey="value" 
-                          fill="#3b82f6" 
-                          radius={[0, 4, 4, 0]} 
-                          barSize={20} 
-                          onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))}
-                          cursor="pointer"
-                        />
+                        <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer" />
                       </BarChart>
                     </ResponsiveContainer>
                    ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
                 </div>
-                <p className="text-xs text-center text-slate-400 mt-2">Haz clic en una barra para filtrar</p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-purple-500"/> Banco de Talentos</h3>
@@ -663,11 +747,7 @@ export default function App() {
                     {stats.topTalentos.length > 0 ? (
                      <ResponsiveContainer width="100%" height="100%">
                        <PieChart>
-                         <Pie 
-                            data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
-                            onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))}
-                            cursor="pointer"
-                         >
+                         <Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer">
                            {stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}
                          </Pie>
                          <Tooltip />
@@ -676,7 +756,6 @@ export default function App() {
                      </ResponsiveContainer>
                     ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
                  </div>
-                 <p className="text-xs text-center text-slate-400 mt-2">Haz clic en una sección para filtrar</p>
               </div>
             </div>
           </div>
@@ -687,48 +766,37 @@ export default function App() {
             {!selectedSister ? (
               <>
                 <div className="mb-6 space-y-4">
-                    {/* BARRA DE BÚSQUEDA */}
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                         <input type="text" placeholder="Buscar hermana..." className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-pink-500 outline-none bg-white shadow-sm"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    {/* INDICADOR DE FILTRO ACTIVO */}
                     {activeFilter.label && (
                       <div className="flex items-center justify-between bg-pink-50 text-pink-800 px-4 py-2 rounded-lg border border-pink-100 animate-in fade-in">
-                        <div className="flex items-center gap-2 font-medium">
-                          <Filter size={16}/> Filtro activo: <span className="font-bold">{activeFilter.label}</span>
-                        </div>
-                        <button onClick={() => setActiveFilter({ label: '', fn: null })} className="p-1 hover:bg-pink-100 rounded-full transition text-pink-600">
-                          <X size={18}/>
-                        </button>
+                        <div className="flex items-center gap-2 font-medium"><Filter size={16}/> Filtro activo: <span className="font-bold">{activeFilter.label}</span></div>
+                        <button onClick={() => setActiveFilter({ label: '', fn: null })} className="p-1 hover:bg-pink-100 rounded-full transition text-pink-600"><X size={18}/></button>
                       </div>
                     )}
                 </div>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredList.length > 0 ? filteredList.map(sister => (
-                    <div key={sister.id} onClick={() => {setSelectedSister(sister); setView('details')}} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-pink-200 cursor-pointer transition group">
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-pink-100 group-hover:text-pink-600 transition">
-                              <User size={20}/>
-                           </div>
+                    <div key={sister.id} onClick={() => {setSelectedSister(sister); setView('details')}} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-pink-200 cursor-pointer transition group flex items-start gap-4">
+                      {/* FOTO EN LISTA */}
+                      <div className="w-16 h-16 rounded-full bg-slate-100 overflow-hidden shrink-0 border border-slate-200 group-hover:border-pink-300 transition">
+                          {sister.foto ? <img src={sister.foto} alt={sister.nombre} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={28}/></div>}
+                      </div>
+                      <div className="w-full">
+                        <div className="flex justify-between items-start">
                            <div>
-                              <h3 className="font-bold text-lg text-slate-800">{sister.nombre} {sister.apellido}</h3>
+                              <h3 className="font-bold text-lg text-slate-800 leading-tight">{sister.nombre} {sister.apellido}</h3>
                               <p className="text-xs text-slate-500">{sister.llamamiento || "Sin llamamiento"}</p>
                            </div>
+                           {sister.investidura && <CheckCircle size={16} className="text-purple-500" title="Investida"/>}
                         </div>
-                        {sister.investidura && <CheckCircle size={16} className="text-purple-500" title="Investida"/>}
                       </div>
                     </div>
-                  )) : (
-                    <div className="col-span-full py-10 text-center text-slate-400">
-                      <p>No se encontraron hermanas con este criterio.</p>
-                      {activeFilter.label && <button onClick={() => setActiveFilter({ label: '', fn: null })} className="mt-2 text-pink-600 font-medium hover:underline">Limpiar filtro</button>}
-                    </div>
-                  )}
+                  )) : <div className="col-span-full py-10 text-center text-slate-400"><p>No se encontraron resultados.</p></div>}
                 </div>
               </>
             ) : (
@@ -736,7 +804,13 @@ export default function App() {
                 <div className="bg-slate-800 text-white p-6 flex justify-between items-center">
                    <div className="flex items-center gap-4">
                      <button onClick={() => {setSelectedSister(null); setView('list')}} className="bg-slate-700 hover:bg-slate-600 p-2 rounded-full transition"><X size={16}/></button>
-                     <div><h1 className="text-2xl font-bold">{selectedSister.nombre} {selectedSister.apellido}</h1><p className="text-slate-300 text-sm">{selectedSister.llamamiento}</p></div>
+                     <div className="flex items-center gap-4">
+                        {/* FOTO EN DETALLE */}
+                        <div className="w-16 h-16 rounded-full bg-slate-600 overflow-hidden shrink-0 border-2 border-slate-500">
+                           {selectedSister.foto ? <img src={selectedSister.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={30}/></div>}
+                        </div>
+                        <div><h1 className="text-2xl font-bold">{selectedSister.nombre} {selectedSister.apellido}</h1><p className="text-slate-300 text-sm">{selectedSister.llamamiento}</p></div>
+                     </div>
                    </div>
                    <div className="flex gap-2">
                      <button onClick={() => setShowForm(true)} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded font-medium">Editar</button>
