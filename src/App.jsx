@@ -590,7 +590,7 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <StatCard 
-                icon={Users} label="Total Asistencia" value={stats.total} color="bg-pink-100 text-pink-600" 
+                icon={Users} label="Total Hermanas Registradas" value={stats.total} color="bg-pink-100 text-pink-600" 
                 onClick={() => applyFilter('Total Hermanas', () => true)}
               />
               <StatCard 
