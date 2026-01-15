@@ -20,7 +20,7 @@ import {
   PieChart, Pie, Legend 
 } from 'recharts';
 
-// --- CONFIGURACIÓN DE FIREBASE (Tus credenciales reales) ---
+// --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDVZ2KAUjlPFMcU4LhX5th24Ab4V7IXrxw",
   authDomain: "sociedad-socorro-app.firebaseapp.com",
@@ -31,8 +31,9 @@ const firebaseConfig = {
   measurementId: "G-8D40HXEL4D"
 };
 
+const appId = "sociedad-socorro-v1";
+
 // --- LISTA DE CORREOS AUTORIZADOS ---
-// Asegúrate de poner tu correo real aquí para poder entrar.
 const ALLOWED_EMAILS = [
   "elisaviaca@gmail.com", 
   "cneth151@gmail.com",
@@ -521,21 +522,14 @@ export default function App() {
 
   useEffect(() => {
     setLoading(true);
-    
-    // Autenticación anónima para compatibilidad inicial
-    const initAnon = async () => {
-      try { await signInAnonymously(auth); } catch(e) {}
-    }
+    const initAnon = async () => { try { await signInAnonymously(auth); } catch(e) {} }
     initAnon();
 
-    // Listener de Auth con Google y Whitelist
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser && currentUser.email) {
         if (ALLOWED_EMAILS.includes(currentUser.email)) {
           setGoogleUser(currentUser);
           setLoginError(null);
-          
-          // --- RESTAURADA LA RUTA ORIGINAL DE DATOS ---
           const ref = collection(db, "hermanas");
           onSnapshot(ref, (snap) => {
             setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -550,7 +544,6 @@ export default function App() {
       }
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -561,17 +554,13 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Login error:", error);
-      setLoginError("No se pudo abrir la ventana de Google. Por favor intenta de nuevo.");
+      setLoginError("Error al abrir ventana de Google.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    setGoogleUser(null);
-    setSisters([]);
-  };
+  const handleLogout = async () => { await signOut(auth); setGoogleUser(null); setSisters([]); };
 
   const handleSave = async (data) => {
     try {
@@ -581,17 +570,13 @@ export default function App() {
         await addDoc(collection(db, "hermanas"), data);
       }
       setShowForm(false); setSelectedSister(null);
-    } catch (err) {
-      console.error("Save Error:", err);
-      alert("Hubo un error al guardar.");
-    }
+    } catch (err) { alert("Error al guardar."); }
   };
 
   const handleDelete = async (id) => {
     if(confirm("¿Eliminar registro?")) {
         await deleteDoc(doc(db, "hermanas", id));
-        setSelectedSister(null);
-        setView('list');
+        setSelectedSister(null); setView('list');
     }
   };
 
@@ -611,8 +596,8 @@ export default function App() {
     const topTalentos = processTags(sisters, 'talentos');
     const topExtrañadas = processMentions(sisters, 'personasExtraña');
     const topSolicitadas = processMentions(sisters, 'quiereConocer');
-    const necesitanAtencion = sisters.filter(s => s.personasExtraña && s.personasExtraña.length > 2).length;
-    const buscandoAmistad = sisters.filter(s => s.quiereConocer && s.quiereConocer.length > 2).length;
+    const necesitanAtencion = sisters.filter(s => s.personasExtraña && s.personasExtraña.split(',').length >= 3).length;
+    const buscandoAmistad = sisters.filter(s => s.quiereConocer && s.quiereConocer.split(',').length >= 3).length;
     const pasos = {
       bautismo: sisters.filter(s => s.bautismo).length,
       investidura: sisters.filter(s => s.investidura).length,
@@ -635,9 +620,7 @@ export default function App() {
     return matchesSearch && matchesFilter;
   });
 
-  if (!googleUser) {
-    return <LoginScreen onLogin={handleLogin} error={loginError} loading={loading} />;
-  }
+  if (!googleUser) return <LoginScreen onLogin={handleLogin} error={loginError} loading={loading} />;
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-10">
@@ -647,18 +630,15 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight hidden md:block">Sociedad de Socorro</h1>
           <span className="md:hidden font-bold text-pink-600">SS</span>
         </div>
-        
         <div className="flex gap-2 sm:gap-4 items-center">
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button onClick={() => setView('dashboard')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><BarChart3 size={16} className="inline mr-1"/> Resumen</button>
             <button onClick={() => setView('list')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'list' || view === 'details' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ListFilter size={16} className="inline mr-1"/> Directorio</button>
           </div>
-          
-          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
-          
+          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
           <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200">
              <img src={googleUser.photoURL || "https://ui-avatars.com/api/?name="+googleUser.displayName} alt="U" className="w-8 h-8 rounded-full border border-pink-200 shadow-sm" />
-             <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition" title="Cerrar Sesión"><LogOut size={18}/></button>
+             <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition"><LogOut size={18}/></button>
           </div>
         </div>
       </nav>
@@ -668,9 +648,7 @@ export default function App() {
           <div className="animate-in fade-in space-y-6">
             {upcomingCommitments.length > 0 && (
               <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 sm:p-6 rounded-xl shadow-sm">
-                <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-4">
-                  <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (15 días)
-                </h3>
+                <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-4"><AlertTriangle className="animate-pulse" /> Compromisos por Vencer (15 días)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {upcomingCommitments.map(s => {
                     const days = getDaysRemaining(s.fechaMeta);
@@ -699,8 +677,8 @@ export default function App() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard icon={Users} label="Directorio" value={stats.total} color="bg-pink-100 text-pink-600" onClick={() => applyFilter('Total Hermanas', () => true)}/>
               <StatCard icon={Award} label="Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" onClick={() => applyFilter('Investidas', s => s.investidura)}/>
-              <StatCard icon={Phone} label="Atención" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}/>
-              <StatCard icon={Smile} label="Social" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}/>
+              <StatCard icon={Phone} label="Atención" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.split(',').length >= 3)}/>
+              <StatCard icon={Smile} label="Social" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.split(',').length >= 3)}/>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -728,9 +706,9 @@ export default function App() {
                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Smile className="text-blue-500"/> Intereses Comunes</h3>
+                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Smile className="text-blue-500"/> Intereses Comunes (Hobbies)</h3>
                 <div className="h-64">
                    {stats.topHobbies.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -742,8 +720,24 @@ export default function App() {
                         <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer" />
                       </BarChart>
                     </ResponsiveContainer>
-                   ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
+                   ) : <p className="text-center text-slate-400 mt-20">No hay datos de hobbies registrados.</p>}
                 </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-purple-500"/> Banco de Talentos</h3>
+                 <div className="h-64">
+                    {stats.topTalentos.length > 0 ? (
+                     <ResponsiveContainer width="100%" height="100%">
+                       <PieChart>
+                         <Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer">
+                           {stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}
+                         </Pie>
+                         <Tooltip />
+                         <Legend verticalAlign="bottom" height={36}/>
+                       </PieChart>
+                     </ResponsiveContainer>
+                    ) : <p className="text-center text-slate-400 mt-20">No hay datos de talentos registrados.</p>}
+                 </div>
               </div>
             </div>
           </div>
