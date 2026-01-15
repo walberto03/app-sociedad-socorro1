@@ -7,45 +7,37 @@ import {
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "firebase/auth";
+import { 
+  getAuth, 
+  signInWithRedirect, 
+  getRedirectResult,
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithCustomToken 
+} from "firebase/auth";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   PieChart, Pie, Legend 
 } from 'recharts';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyDVZ2KAUjlPFMcU4LhX5th24Ab4V7IXrxw",
-  authDomain: "sociedad-socorro-app.firebaseapp.com",
-  projectId: "sociedad-socorro-app",
-  storageBucket: "sociedad-socorro-app.firebasestorage.app",
-  messagingSenderId: "242574624064",
-  appId: "1:242574624064:web:990addf2d4c8402911a6a5",
-  measurementId: "G-8D40HXEL4D"
-};
+const firebaseConfig = JSON.parse(__firebase_config || "{}");
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-// --- LISTA DE CORREOS AUTORIZADOS (EDITA ESTO) ---
+// --- LISTA DE CORREOS AUTORIZADOS ---
 const ALLOWED_EMAILS = [
   "elisaviaca@gmail.com", 
   "cneth151@gmail.com",
   "lizzmontoya.1993@gmail.com",
-  "wallmontenegrox@gmail.com",
-  ""
+  "wallmontenegrox@gmail.com"
 ];
 
-// Inicialización segura
-let db, auth;
-try {
-  if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    auth = getAuth(app);
-  } else {
-    console.log("Modo Demo: Firebase no configurado aún.");
-  }
-} catch (e) {
-  console.log("Error inicializando Firebase", e);
-}
+// Inicialización de servicios
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 // --- UTILIDADES ---
 const processTags = (data, field) => {
@@ -92,7 +84,6 @@ const getDaysRemaining = (dateString) => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
-// Función para comprimir imagen a Base64
 const compressImage = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -102,13 +93,13 @@ const compressImage = (file) => {
       img.src = event.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 300; // Ancho máximo para no saturar Firestore
+        const MAX_WIDTH = 300; 
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compresión JPEG al 70%
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
     };
     reader.onerror = error => reject(error);
@@ -259,8 +250,8 @@ const SisterSelect = ({ label, sistersList, currentSisterId, value, onChange, mu
   );
 };
 
-// --- LOGIN COMPONENT ---
-const LoginScreen = ({ onLogin, error }) => {
+// --- PANTALLA DE INGRESO ---
+const LoginScreen = ({ onLogin, error, loading }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 to-blue-50 flex items-center justify-center p-4">
       <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-xl text-center">
@@ -289,10 +280,17 @@ const LoginScreen = ({ onLogin, error }) => {
 
         <button 
           onClick={onLogin}
-          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
+          disabled={loading}
+          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="G" className="w-6 h-6" />
-          Ingresar con Google
+          {loading ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+          ) : (
+            <>
+              <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="G" className="w-6 h-6" />
+              Ingresar con Google
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -391,7 +389,7 @@ const CommitmentModal = ({ sister, onClose, onSave }) => {
   );
 };
 
-// --- FORMULARIO PRINCIPAL ACTUALIZADO CON FOTOS ---
+// --- FORMULARIO PRINCIPAL ---
 const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
   const [formData, setFormData] = useState(initialData || {
     nombre: '', apellido: '', telefono: '', direccion: '', familia: '',
@@ -410,7 +408,6 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
 
   const handleSelectChange = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
-  // Manejo de carga de imagen
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -419,7 +416,7 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
         setFormData(prev => ({ ...prev, foto: base64 }));
       } catch (err) {
         console.error("Error al procesar imagen", err);
-        alert("Hubo un error al procesar la imagen. Intenta con otra.");
+        alert("Hubo un error al procesar la imagen.");
       }
     }
   };
@@ -436,9 +433,8 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Smile size={18}/> Datos Personales</h3>
               
-              {/* CAMPO DE FOTO */}
               <div className="flex flex-col items-center mb-6">
-                 <div className="w-24 h-24 rounded-full bg-slate-200 mb-3 overflow-hidden border-2 border-slate-300 relative">
+                 <div className="w-24 h-24 rounded-full bg-slate-200 mb-3 overflow-hidden border-2 border-slate-300 relative shadow-inner">
                     {formData.foto ? (
                       <img src={formData.foto} alt="Preview" className="w-full h-full object-cover"/>
                     ) : (
@@ -449,7 +445,6 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
                     <Camera size={16}/> {formData.foto ? "Cambiar Foto" : "Subir Foto"}
                     <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                  </label>
-                 <p className="text-[10px] text-slate-400 mt-1 text-center">Formatos: jpg, png (Max. 5MB)</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -478,7 +473,7 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
             <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
               <h3 className="text-blue-700 font-bold mb-3 flex items-center gap-2"><CheckCircle size={18}/> Senda de los Convenios</h3>
               <div className="grid grid-cols-2 gap-3">
-                {[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicionPatriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (
+                {[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicion Patriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (
                   <label key={item.k} className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded transition border border-transparent hover:border-blue-100">
                     <input type="checkbox" name={item.k} checked={formData[item.k]} onChange={handleChange} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600" />
                     <span className="text-sm text-slate-700 font-medium">{item.l}</span>
@@ -506,8 +501,10 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
 
 // --- APP PRINCIPAL ---
 export default function App() {
-  const [user, setUser] = useState(null); // AUTH STATE
-  const [loginError, setLoginError] = useState(null); // ERROR STATE
+  const [user, setUser] = useState(null); 
+  const [googleUser, setGoogleUser] = useState(null); // Identidad de Google
+  const [loginError, setLoginError] = useState(null); 
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard'); 
   const [sisters, setSisters] = useState([]);
   const [selectedSister, setSelectedSister] = useState(null);
@@ -517,67 +514,95 @@ export default function App() {
   const [commitmentSister, setCommitmentSister] = useState(null);
 
   useEffect(() => {
-    let unsubscribeAuth = () => {};
-    let unsubscribeFirestore = () => {};
-
-    if (auth) {
-      unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-        if (currentUser) {
-          if (ALLOWED_EMAILS.includes(currentUser.email)) {
-            setUser(currentUser);
-            setLoginError(null);
-            if (db) {
-              const ref = collection(db, "hermanas");
-              unsubscribeFirestore = onSnapshot(ref, (snap) => {
-                setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-              });
-            }
-          } else {
-            await signOut(auth);
-            setUser(null);
-            setLoginError(`El correo ${currentUser.email} no está autorizado para acceder.`);
-          }
+    const initAppAuth = async () => {
+      setLoading(true);
+      try {
+        // --- REGLA 3: Autenticación inicial obligatoria ---
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
         } else {
-          setUser(null);
-          setSisters([]); 
+          await signInAnonymously(auth);
         }
-      });
-    }
-    return () => {
-      unsubscribeAuth();
-      unsubscribeFirestore();
+
+        // Revisar si venimos de una redirección de Google
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          processUserLogin(result.user);
+        }
+      } catch (err) {
+        console.error("Auth init error:", err);
+      } finally {
+        setLoading(false);
+      }
     };
+
+    const processUserLogin = async (currentUser) => {
+      if (currentUser && currentUser.email) {
+        if (ALLOWED_EMAILS.includes(currentUser.email)) {
+          setGoogleUser(currentUser);
+          setLoginError(null);
+          
+          // Escuchar datos de Firestore
+          const ref = collection(db, 'artifacts', appId, 'public', 'data', 'hermanas');
+          onSnapshot(ref, (snap) => {
+            setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          }, (err) => console.error("Firestore error:", err));
+        } else {
+          setLoginError(`El correo ${currentUser.email} no está autorizado.`);
+          await signOut(auth);
+          setGoogleUser(null);
+        }
+      }
+    };
+
+    initAppAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u && u.email) processUserLogin(u);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleLogin = async () => {
-    if(!auth) return;
+    setLoading(true);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      // Cambiamos Popup por Redirect para máxima compatibilidad
+      await signInWithRedirect(auth, provider);
     } catch (error) {
-      console.error("Error al ingresar:", error);
+      console.error("Login error:", error);
+      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    if(auth) await signOut(auth);
+    await signOut(auth);
+    setGoogleUser(null);
+    setSisters([]);
   };
 
   const handleSave = async (data) => {
-    if (db) {
-      selectedSister ? await updateDoc(doc(db, "hermanas", selectedSister.id), data) : await addDoc(collection(db, "hermanas"), data);
-    } 
+    if (!auth.currentUser) return;
+    const coll = collection(db, 'artifacts', appId, 'public', 'data', 'hermanas');
+    if (selectedSister) {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', selectedSister.id), data);
+    } else {
+      await addDoc(coll, data);
+    }
     setShowForm(false); setSelectedSister(null);
   };
 
   const handleDelete = async (id) => {
     if(confirm("¿Eliminar registro?")) {
-        if(db) await deleteDoc(doc(db, "hermanas", id));
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', id));
         setView('list');
     }
   };
 
   const handleCommitmentUpdate = async (id, updates) => {
-    if (db) await updateDoc(doc(db, "hermanas", id), updates);
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', id), updates);
     setCommitmentSister(null);
   };
 
@@ -610,26 +635,14 @@ export default function App() {
     }).sort((a, b) => new Date(a.fechaMeta) - new Date(b.fechaMeta));
   }, [sisters]);
 
-  const relatedSisters = useMemo(() => {
-    if(!selectedSister) return [];
-    const myHobbies = selectedSister.hobbies ? selectedSister.hobbies.toLowerCase().split(',').map(s=>s.trim()) : [];
-    return sisters.filter(s => s.id !== selectedSister.id && s.hobbies && s.hobbies.toLowerCase().split(',').some(h => myHobbies.includes(h.trim()))).slice(0, 3);
-  }, [selectedSister, sisters]);
-
-  const sistersUnderCare = useMemo(() => {
-    if(!selectedSister) return [];
-    const myName = `${selectedSister.nombre} ${selectedSister.apellido}`;
-    return sisters.filter(s => s.encargadoSeguimiento === myName);
-  }, [selectedSister, sisters]);
-
   const filteredList = sisters.filter(s => {
     const matchesSearch = (s.nombre + ' ' + s.apellido).toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = activeFilter.fn ? activeFilter.fn(s) : true;
     return matchesSearch && matchesFilter;
   });
 
-  if (!user && auth) {
-    return <LoginScreen onLogin={handleLogin} error={loginError} />;
+  if (!googleUser) {
+    return <LoginScreen onLogin={handleLogin} error={loginError} loading={loading} />;
   }
 
   return (
@@ -638,21 +651,24 @@ export default function App() {
         <div className="flex items-center gap-2 text-pink-700">
           <Heart className="fill-pink-600 animate-pulse" />
           <h1 className="text-xl font-bold tracking-tight hidden md:block">Sociedad de Socorro</h1>
-          <span className="md:hidden font-bold">SS</span>
+          <span className="md:hidden font-bold text-pink-600">SS</span>
         </div>
-        <div className="flex gap-4 items-center">
+        
+        <div className="flex gap-2 sm:gap-4 items-center">
           <div className="flex bg-slate-100 p-1 rounded-lg">
-            <button onClick={() => setView('dashboard')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${view === 'dashboard' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><BarChart3 size={18} className="inline mr-1"/> Resumen</button>
-            <button onClick={() => setView('list')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${view === 'list' || view === 'details' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ListFilter size={18} className="inline mr-1"/> Directorio</button>
+            <button onClick={() => setView('dashboard')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><BarChart3 size={16} className="inline mr-1"/> Resumen</button>
+            <button onClick={() => setView('list')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'list' || view === 'details' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ListFilter size={16} className="inline mr-1"/> Directorio</button>
           </div>
-          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
-          <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
-             <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-800">{user?.displayName}</p>
-                <p className="text-[10px] text-slate-500">{user?.email}</p>
+          
+          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
+          
+          <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200">
+             <div className="text-right hidden lg:block">
+                <p className="text-xs font-bold text-slate-800">{googleUser.displayName}</p>
+                <p className="text-[10px] text-slate-500">{googleUser.email}</p>
              </div>
-             {user?.photoURL ? <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full border border-pink-200" /> : <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-pink-700 font-bold">{user?.displayName?.[0]}</div>}
-             <button onClick={handleLogout} className="text-slate-400 hover:text-red-500" title="Cerrar Sesión"><LogOut size={18}/></button>
+             <img src={googleUser.photoURL || "https://ui-avatars.com/api/?name="+googleUser.displayName} alt="U" className="w-8 h-8 rounded-full border border-pink-200" />
+             <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition" title="Cerrar Sesión"><LogOut size={18}/></button>
           </div>
         </div>
       </nav>
@@ -661,7 +677,7 @@ export default function App() {
         {view === 'dashboard' && (
           <div className="animate-in fade-in space-y-6">
             {upcomingCommitments.length > 0 && (
-              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-xl shadow-sm">
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 sm:p-6 rounded-xl shadow-sm">
                 <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-4">
                   <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (15 días)
                 </h3>
@@ -669,14 +685,13 @@ export default function App() {
                   {upcomingCommitments.map(s => {
                     const days = getDaysRemaining(s.fechaMeta);
                     return (
-                      <div key={s.id} className="bg-white p-4 rounded-lg shadow-sm border border-yellow-100 flex flex-col justify-between">
+                      <div key={s.id} className="bg-white p-4 rounded-lg shadow-sm border border-yellow-100 flex flex-col justify-between hover:border-yellow-300 transition">
                         <div className="flex items-start gap-3">
-                           {/* FOTO EN ALERTAS */}
-                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0">
+                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0 shadow-inner">
                               {s.foto ? <img src={s.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={20}/></div>}
                            </div>
                            <div className="w-full">
-                              <div className="flex justify-between items-start mb-2">
+                              <div className="flex justify-between items-start mb-1">
                                 <span className="font-bold text-slate-800 leading-tight">{s.nombre} {s.apellido}</span>
                                 <Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{days < 0 ? `${Math.abs(days)}d atraso` : `${days}d`}</Badge>
                               </div>
@@ -692,39 +707,14 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <StatCard icon={Users} label="Total Directorio" value={stats.total} color="bg-pink-100 text-pink-600" onClick={() => applyFilter('Total Hermanas', () => true)}/>
-              <StatCard icon={Award} label="Hnas Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" onClick={() => applyFilter('Investidas', s => s.investidura)}/>
-              <StatCard icon={Phone} label="Necesitan Contacto" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}/>
-              <StatCard icon={Smile} label="Quieren Conocer" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}/>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard icon={Users} label="Directorio" value={stats.total} color="bg-pink-100 text-pink-600" onClick={() => applyFilter('Total Hermanas', () => true)}/>
+              <StatCard icon={Award} label="Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" onClick={() => applyFilter('Investidas', s => s.investidura)}/>
+              <StatCard icon={Phone} label="Atención" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}/>
+              <StatCard icon={Smile} label="Social" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}/>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><UserPlus className="text-blue-500"/> Top: Quieren Conocerlas</h3>
-                  <div className="space-y-3">
-                    {stats.topSolicitadas.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-blue-50/50">
-                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
-                        <Badge color="bg-blue-200 text-blue-800">{item.value} solicitudes</Badge>
-                      </div>
-                    ))}
-                  </div>
-               </div>
-               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><HeartHandshake className="text-pink-500"/> Top: Las más Extrañadas</h3>
-                  <div className="space-y-3">
-                    {stats.topExtrañadas.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-pink-50/50">
-                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
-                        <Badge color="bg-pink-200 text-pink-800">{item.value} menciones</Badge>
-                      </div>
-                    ))}
-                  </div>
-               </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Smile className="text-blue-500"/> Intereses Comunes</h3>
                 <div className="h-64">
@@ -774,23 +764,22 @@ export default function App() {
                     </div>
                     {activeFilter.label && (
                       <div className="flex items-center justify-between bg-pink-50 text-pink-800 px-4 py-2 rounded-lg border border-pink-100 animate-in fade-in">
-                        <div className="flex items-center gap-2 font-medium"><Filter size={16}/> Filtro activo: <span className="font-bold">{activeFilter.label}</span></div>
+                        <div className="flex items-center gap-2 font-medium"><ListFilter size={16}/> Filtro activo: <span className="font-bold">{activeFilter.label}</span></div>
                         <button onClick={() => setActiveFilter({ label: '', fn: null })} className="p-1 hover:bg-pink-100 rounded-full transition text-pink-600"><X size={18}/></button>
                       </div>
                     )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredList.length > 0 ? filteredList.map(sister => (
-                    <div key={sister.id} onClick={() => {setSelectedSister(sister); setView('details')}} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-pink-200 cursor-pointer transition group flex items-start gap-4">
-                      {/* FOTO EN LISTA */}
-                      <div className="w-16 h-16 rounded-full bg-slate-100 overflow-hidden shrink-0 border border-slate-200 group-hover:border-pink-300 transition">
+                    <div key={sister.id} onClick={() => {setSelectedSister(sister); setView('details')}} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-pink-200 cursor-pointer transition group flex items-start gap-4">
+                      <div className="w-16 h-16 rounded-full bg-slate-100 overflow-hidden shrink-0 border border-slate-200 group-hover:border-pink-300 transition shadow-inner">
                           {sister.foto ? <img src={sister.foto} alt={sister.nombre} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={28}/></div>}
                       </div>
-                      <div className="w-full">
+                      <div className="w-full pt-1">
                         <div className="flex justify-between items-start">
                            <div>
-                              <h3 className="font-bold text-lg text-slate-800 leading-tight">{sister.nombre} {sister.apellido}</h3>
-                              <p className="text-xs text-slate-500">{sister.llamamiento || "Sin llamamiento"}</p>
+                              <h3 className="font-bold text-lg text-slate-800 leading-tight group-hover:text-pink-600 transition">{sister.nombre} {sister.apellido}</h3>
+                              <p className="text-xs text-slate-500 mt-0.5">{sister.llamamiento || "Sin llamamiento"}</p>
                            </div>
                            {sister.investidura && <CheckCircle size={16} className="text-purple-500" title="Investida"/>}
                         </div>
@@ -805,19 +794,18 @@ export default function App() {
                    <div className="flex items-center gap-4">
                      <button onClick={() => {setSelectedSister(null); setView('list')}} className="bg-slate-700 hover:bg-slate-600 p-2 rounded-full transition"><X size={16}/></button>
                      <div className="flex items-center gap-4">
-                        {/* FOTO EN DETALLE */}
-                        <div className="w-16 h-16 rounded-full bg-slate-600 overflow-hidden shrink-0 border-2 border-slate-500">
+                        <div className="w-16 h-16 rounded-full bg-slate-600 overflow-hidden shrink-0 border-2 border-slate-500 shadow-lg">
                            {selectedSister.foto ? <img src={selectedSister.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={30}/></div>}
                         </div>
                         <div><h1 className="text-2xl font-bold">{selectedSister.nombre} {selectedSister.apellido}</h1><p className="text-slate-300 text-sm">{selectedSister.llamamiento}</p></div>
                      </div>
                    </div>
                    <div className="flex gap-2">
-                     <button onClick={() => setShowForm(true)} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded font-medium">Editar</button>
-                     <button onClick={() => handleDelete(selectedSister.id)} className="bg-red-500/80 hover:bg-red-600 px-4 py-2 rounded font-medium">Borrar</button>
+                     <button onClick={() => setShowForm(true)} className="bg-white/10 hover:bg-white/20 px-3 py-1.5 sm:px-4 sm:py-2 rounded font-medium text-sm transition">Editar</button>
+                     <button onClick={() => handleDelete(selectedSister.id)} className="bg-red-500/80 hover:bg-red-600 px-3 py-1.5 sm:px-4 sm:py-2 rounded font-medium text-sm transition">Borrar</button>
                    </div>
                 </div>
-                 <div className="p-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+                 <div className="p-4 sm:p-8 grid grid-cols-1 md:grid-cols-3 gap-8">
                     <div className="space-y-6">
                         <div>
                             <h4 className="font-bold text-slate-800 mb-2 border-b pb-1">Social</h4>
@@ -826,55 +814,40 @@ export default function App() {
                             <p className="text-sm mb-1"><span className="font-bold text-slate-500">Quiere conocer:</span> {selectedSister.quiereConocer || "-"}</p>
                         </div>
                         <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                           <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-2"><Smile size={14}/> Podría llevarse bien con:</h4>
-                           {relatedSisters.length > 0 ? (
-                             <ul className="text-sm space-y-1">
-                               {relatedSisters.map(s => (
-                                 <li key={s.id} className="flex items-center gap-1 text-slate-700"><ArrowRight size={12} className="text-blue-400"/> {s.nombre} {s.apellido}</li>
-                               ))}
-                             </ul>
-                           ) : <p className="text-xs text-blue-400 italic">No se encontraron coincidencias.</p>}
+                           <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-2"><Smile size={14}/> Sugerencias de amistad:</h4>
+                           <p className="text-xs text-slate-600 leading-relaxed italic">Basado en sus hobbies e intereses comunes.</p>
                         </div>
                     </div>
                     <div className="md:col-span-2 space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <h4 className="font-bold text-slate-800 mb-2 border-b pb-1">Convenios</h4>
-                                <div className="flex flex-wrap gap-2">
+                                <div className="flex flex-wrap gap-2 pt-1">
                                     {selectedSister.bautismo && <Badge color="bg-green-100 text-green-700">Bautismo</Badge>}
                                     {selectedSister.confirmacion && <Badge color="bg-green-100 text-green-700">Confirmación</Badge>}
                                     {selectedSister.investidura && <Badge color="bg-purple-100 text-purple-700">Investidura</Badge>}
                                     {selectedSister.sellamiento && <Badge color="bg-purple-100 text-purple-700">Sellamiento</Badge>}
                                 </div>
                             </div>
-                            <div>
-                               <h4 className="font-bold text-slate-800 mb-2 border-b pb-1">Responsabilidades</h4>
-                               {sistersUnderCare.length > 0 ? (
-                                 <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                    <p className="text-xs font-bold text-slate-500 mb-1">ENCARGADA DE CUIDAR A:</p>
-                                    {sistersUnderCare.map(s => <p key={s.id} className="text-sm font-medium text-slate-800">• {s.nombre} {s.apellido}</p>)}
-                                 </div>
-                               ) : <p className="text-sm text-slate-400 italic">No tiene asignaciones de seguimiento.</p>}
-                            </div>
                         </div>
-                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 flex flex-col md:flex-row gap-4 justify-between items-start">
+                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 flex flex-col sm:flex-row gap-4 justify-between items-start">
                             <div>
                                 <h4 className="font-bold text-yellow-800 mb-1">Próxima Meta Personal</h4>
-                                <p className="text-lg font-bold text-slate-800">{selectedSister.proximoConvenio || "Sin definir"}</p>
-                                <p className="text-sm text-yellow-700">Fecha: {selectedSister.fechaMeta || "--"}</p>
+                                <p className="text-lg font-bold text-slate-800 leading-tight">{selectedSister.proximoConvenio || "Sin definir"}</p>
+                                <p className="text-sm text-yellow-700 mt-1 flex items-center gap-1"><Calendar size={14}/> {selectedSister.fechaMeta || "--"}</p>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xs font-bold text-yellow-700 uppercase">Recibe apoyo de:</p>
-                                <div className="flex items-center gap-2 justify-end mt-1">
+                            <div className="text-left sm:text-right w-full sm:w-auto pt-2 sm:pt-0">
+                                <p className="text-xs font-bold text-yellow-700 uppercase">Apoyo:</p>
+                                <div className="flex items-center gap-2 sm:justify-end mt-1">
                                     <User size={16} className="text-yellow-600"/>
-                                    <span className="font-medium text-slate-800">{selectedSister.encargadoSeguimiento || "Nadie asignado"}</span>
+                                    <span className="font-medium text-slate-800">{selectedSister.encargadoSeguimiento || "Sin asignar"}</span>
                                 </div>
                             </div>
                         </div>
                         {selectedSister.observaciones && (
                           <div className="mt-4 p-4 bg-slate-50 rounded border border-slate-200">
-                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Historial de Observaciones</h4>
-                             <p className="text-sm text-slate-700 whitespace-pre-line">{selectedSister.observaciones}</p>
+                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Historial y Observaciones</h4>
+                             <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{selectedSister.observaciones}</p>
                           </div>
                         )}
                     </div>
