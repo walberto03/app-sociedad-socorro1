@@ -3,30 +3,36 @@ import {
   Users, Heart, Search, Plus, Save, X, Activity, 
   Calendar, CheckCircle, Smile, Award, Phone, User, 
   PieChart as PieIcon, BarChart3, ListFilter, ChevronDown, Check,
-  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, LogOut, Lock, AlertCircle, Camera
+  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, LogOut, Lock, AlertCircle, Camera, CheckSquare, XSquare
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { 
   getAuth, 
-  signInWithRedirect, 
-  getRedirectResult,
+  signInWithPopup, 
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged,
-  signInAnonymously,
-  signInWithCustomToken 
+  signInAnonymously
 } from "firebase/auth";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, 
   PieChart, Pie, Legend 
 } from 'recharts';
 
-// --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = JSON.parse(__firebase_config || "{}");
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// --- CONFIGURACIÓN DE FIREBASE (Tus credenciales reales) ---
+const firebaseConfig = {
+  apiKey: "AIzaSyDVZ2KAUjlPFMcU4LhX5th24Ab4V7IXrxw",
+  authDomain: "sociedad-socorro-app.firebaseapp.com",
+  projectId: "sociedad-socorro-app",
+  storageBucket: "sociedad-socorro-app.firebasestorage.app",
+  messagingSenderId: "242574624064",
+  appId: "1:242574624064:web:990addf2d4c8402911a6a5",
+  measurementId: "G-8D40HXEL4D"
+};
 
 // --- LISTA DE CORREOS AUTORIZADOS ---
+// Asegúrate de poner tu correo real aquí para poder entrar.
 const ALLOWED_EMAILS = [
   "elisaviaca@gmail.com", 
   "cneth151@gmail.com",
@@ -255,7 +261,7 @@ const SisterSelect = ({ label, sistersList, currentSisterId, value, onChange, mu
 const LoginScreen = ({ onLogin, error, loading }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 to-blue-50 flex items-center justify-center p-4">
-      <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-xl text-center">
+      <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-xl text-center animate-in fade-in zoom-in duration-300">
         <div className="w-20 h-20 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <Heart size={40} className="text-pink-600 fill-pink-600" />
         </div>
@@ -263,7 +269,7 @@ const LoginScreen = ({ onLogin, error, loading }) => {
         <p className="text-slate-500 mb-8">Gestión de ministración y progreso personal</p>
         
         {error ? (
-           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8 text-left flex gap-3 animate-in fade-in">
+           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8 text-left flex gap-3 animate-in slide-in-from-top-4">
              <AlertCircle className="text-red-500 shrink-0" size={24}/>
              <div>
                <p className="font-bold text-red-800 text-sm">Acceso Denegado</p>
@@ -282,7 +288,7 @@ const LoginScreen = ({ onLogin, error, loading }) => {
         <button 
           onClick={onLogin}
           disabled={loading}
-          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl h-12 disabled:opacity-50"
         >
           {loading ? (
             <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
@@ -474,7 +480,7 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
             <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
               <h3 className="text-blue-700 font-bold mb-3 flex items-center gap-2"><CheckCircle size={18}/> Senda de los Convenios</h3>
               <div className="grid grid-cols-2 gap-3">
-                {[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicion Patriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (
+                {[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicionPatriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (
                   <label key={item.k} className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded transition border border-transparent hover:border-blue-100">
                     <input type="checkbox" name={item.k} checked={formData[item.k]} onChange={handleChange} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600" />
                     <span className="text-sm text-slate-700 font-medium">{item.l}</span>
@@ -502,8 +508,7 @@ const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
 
 // --- APP PRINCIPAL ---
 export default function App() {
-  const [user, setUser] = useState(null); 
-  const [googleUser, setGoogleUser] = useState(null); // Identidad de Google
+  const [googleUser, setGoogleUser] = useState(null); 
   const [loginError, setLoginError] = useState(null); 
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard'); 
@@ -515,52 +520,35 @@ export default function App() {
   const [commitmentSister, setCommitmentSister] = useState(null);
 
   useEffect(() => {
-    const initAppAuth = async () => {
-      setLoading(true);
-      try {
-        // --- REGLA 3: Autenticación inicial obligatoria ---
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+    setLoading(true);
+    
+    // Autenticación anónima para compatibilidad inicial
+    const initAnon = async () => {
+      try { await signInAnonymously(auth); } catch(e) {}
+    }
+    initAnon();
 
-        // Revisar si venimos de una redirección de Google
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          processUserLogin(result.user);
-        }
-      } catch (err) {
-        console.error("Auth init error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const processUserLogin = async (currentUser) => {
+    // Listener de Auth con Google y Whitelist
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser && currentUser.email) {
         if (ALLOWED_EMAILS.includes(currentUser.email)) {
           setGoogleUser(currentUser);
           setLoginError(null);
           
-          // Escuchar datos de Firestore
-          const ref = collection(db, 'artifacts', appId, 'public', 'data', 'hermanas');
+          // --- RESTAURADA LA RUTA ORIGINAL DE DATOS ---
+          const ref = collection(db, "hermanas");
           onSnapshot(ref, (snap) => {
             setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-          }, (err) => console.error("Firestore error:", err));
+          }, (err) => console.error("Firestore Error:", err));
         } else {
-          setLoginError(`El correo ${currentUser.email} no está autorizado.`);
+          setLoginError(`Acceso denegado: El correo ${currentUser.email} no está en la lista de líderes.`);
           await signOut(auth);
           setGoogleUser(null);
         }
+      } else {
+        setGoogleUser(null);
       }
-    };
-
-    initAppAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (u && u.email) processUserLogin(u);
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -570,10 +558,11 @@ export default function App() {
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      // Cambiamos Popup por Redirect para máxima compatibilidad
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Login error:", error);
+      setLoginError("No se pudo abrir la ventana de Google. Por favor intenta de nuevo.");
+    } finally {
       setLoading(false);
     }
   };
@@ -585,25 +574,29 @@ export default function App() {
   };
 
   const handleSave = async (data) => {
-    if (!auth.currentUser) return;
-    const coll = collection(db, 'artifacts', appId, 'public', 'data', 'hermanas');
-    if (selectedSister) {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', selectedSister.id), data);
-    } else {
-      await addDoc(coll, data);
+    try {
+      if (selectedSister) {
+        await updateDoc(doc(db, "hermanas", selectedSister.id), data);
+      } else {
+        await addDoc(collection(db, "hermanas"), data);
+      }
+      setShowForm(false); setSelectedSister(null);
+    } catch (err) {
+      console.error("Save Error:", err);
+      alert("Hubo un error al guardar.");
     }
-    setShowForm(false); setSelectedSister(null);
   };
 
   const handleDelete = async (id) => {
     if(confirm("¿Eliminar registro?")) {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', id));
+        await deleteDoc(doc(db, "hermanas", id));
+        setSelectedSister(null);
         setView('list');
     }
   };
 
   const handleCommitmentUpdate = async (id, updates) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hermanas', id), updates);
+    await updateDoc(doc(db, "hermanas", id), updates);
     setCommitmentSister(null);
   };
 
@@ -664,11 +657,7 @@ export default function App() {
           <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
           
           <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200">
-             <div className="text-right hidden lg:block">
-                <p className="text-xs font-bold text-slate-800">{googleUser.displayName}</p>
-                <p className="text-[10px] text-slate-500">{googleUser.email}</p>
-             </div>
-             <img src={googleUser.photoURL || "https://ui-avatars.com/api/?name="+googleUser.displayName} alt="U" className="w-8 h-8 rounded-full border border-pink-200" />
+             <img src={googleUser.photoURL || "https://ui-avatars.com/api/?name="+googleUser.displayName} alt="U" className="w-8 h-8 rounded-full border border-pink-200 shadow-sm" />
              <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition" title="Cerrar Sesión"><LogOut size={18}/></button>
           </div>
         </div>
@@ -697,7 +686,6 @@ export default function App() {
                                 <Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{days < 0 ? `${Math.abs(days)}d atraso` : `${days}d`}</Badge>
                               </div>
                               <p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p>
-                              <p className="text-xs text-slate-400 flex items-center gap-1"><User size={12}/> {s.encargadoSeguimiento || 'Sin asignar'}</p>
                            </div>
                         </div>
                         <button onClick={() => setCommitmentSister(s)} className="mt-3 w-full py-2 bg-yellow-100 text-yellow-800 font-bold text-sm rounded hover:bg-yellow-200 transition">Gestionar / Actualizar</button>
@@ -716,6 +704,31 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><UserPlus className="text-blue-500"/> Top: Quieren Conocerlas</h3>
+                  <div className="space-y-3">
+                    {stats.topSolicitadas.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-blue-50/50">
+                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
+                        <Badge color="bg-blue-200 text-blue-800">{item.value} solicitudes</Badge>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><HeartHandshake className="text-pink-500"/> Top: Las más Extrañadas</h3>
+                  <div className="space-y-3">
+                    {stats.topExtrañadas.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-pink-50/50">
+                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
+                        <Badge color="bg-pink-200 text-pink-800">{item.value} menciones</Badge>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Smile className="text-blue-500"/> Intereses Comunes</h3>
                 <div className="h-64">
@@ -725,28 +738,12 @@ export default function App() {
                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 12}} />
-                        <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} />
+                        <Tooltip cursor={{fill: 'transparent'}} />
                         <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer" />
                       </BarChart>
                     </ResponsiveContainer>
                    ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
                 </div>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-purple-500"/> Banco de Talentos</h3>
-                 <div className="h-64">
-                    {stats.topTalentos.length > 0 ? (
-                     <ResponsiveContainer width="100%" height="100%">
-                       <PieChart>
-                         <Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer">
-                           {stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}
-                         </Pie>
-                         <Tooltip />
-                         <Legend verticalAlign="bottom" height={36}/>
-                       </PieChart>
-                     </ResponsiveContainer>
-                    ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
-                 </div>
               </div>
             </div>
           </div>
@@ -802,8 +799,8 @@ export default function App() {
                      </div>
                    </div>
                    <div className="flex gap-2">
-                     <button onClick={() => setShowForm(true)} className="bg-white/10 hover:bg-white/20 px-3 py-1.5 sm:px-4 sm:py-2 rounded font-medium text-sm transition">Editar</button>
-                     <button onClick={() => handleDelete(selectedSister.id)} className="bg-red-500/80 hover:bg-red-600 px-3 py-1.5 sm:px-4 sm:py-2 rounded font-medium text-sm transition">Borrar</button>
+                     <button onClick={() => setShowForm(true)} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded font-medium transition">Editar</button>
+                     <button onClick={() => handleDelete(selectedSister.id)} className="bg-red-500/80 hover:bg-red-600 px-4 py-2 rounded font-medium transition">Borrar</button>
                    </div>
                 </div>
                  <div className="p-4 sm:p-8 grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -813,10 +810,6 @@ export default function App() {
                             <p className="text-sm mb-1"><span className="font-bold text-slate-500">Cercana a:</span> {selectedSister.amigasCercanas || "-"}</p>
                             <p className="text-sm mb-1"><span className="font-bold text-slate-500">Extraña a:</span> {selectedSister.personasExtraña || "-"}</p>
                             <p className="text-sm mb-1"><span className="font-bold text-slate-500">Quiere conocer:</span> {selectedSister.quiereConocer || "-"}</p>
-                        </div>
-                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                           <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-2"><Smile size={14}/> Sugerencias de amistad:</h4>
-                           <p className="text-xs text-slate-600 leading-relaxed italic">Basado en sus hobbies e intereses comunes.</p>
                         </div>
                     </div>
                     <div className="md:col-span-2 space-y-6">
@@ -833,21 +826,14 @@ export default function App() {
                         </div>
                         <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 flex flex-col sm:flex-row gap-4 justify-between items-start">
                             <div>
-                                <h4 className="font-bold text-yellow-800 mb-1">Próxima Meta Personal</h4>
-                                <p className="text-lg font-bold text-slate-800 leading-tight">{selectedSister.proximoConvenio || "Sin definir"}</p>
+                                <h4 className="font-bold text-yellow-800 mb-1">Próxima Meta</h4>
+                                <p className="text-lg font-bold text-slate-800">{selectedSister.proximoConvenio || "Sin definir"}</p>
                                 <p className="text-sm text-yellow-700 mt-1 flex items-center gap-1"><Calendar size={14}/> {selectedSister.fechaMeta || "--"}</p>
-                            </div>
-                            <div className="text-left sm:text-right w-full sm:w-auto pt-2 sm:pt-0">
-                                <p className="text-xs font-bold text-yellow-700 uppercase">Apoyo:</p>
-                                <div className="flex items-center gap-2 sm:justify-end mt-1">
-                                    <User size={16} className="text-yellow-600"/>
-                                    <span className="font-medium text-slate-800">{selectedSister.encargadoSeguimiento || "Sin asignar"}</span>
-                                </div>
                             </div>
                         </div>
                         {selectedSister.observaciones && (
                           <div className="mt-4 p-4 bg-slate-50 rounded border border-slate-200">
-                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Historial y Observaciones</h4>
+                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Observaciones</h4>
                              <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{selectedSister.observaciones}</p>
                           </div>
                         )}
