@@ -3,7 +3,7 @@ import {
   Users, Heart, Search, Plus, Save, X, Activity, 
   Calendar, CheckCircle, Smile, Award, Phone, User, 
   PieChart as PieIcon, BarChart3, ListFilter, ChevronDown, Check,
-  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, Clock, CheckSquare, XSquare
+  UserPlus, HeartHandshake, ArrowRight, AlertTriangle, Clock, CheckSquare, XSquare, Filter
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
@@ -90,8 +90,11 @@ const Badge = ({ children, color = "bg-blue-100 text-blue-800" }) => (
   </span>
 );
 
-const StatCard = ({ icon: Icon, label, value, color }) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md transition">
+const StatCard = ({ icon: Icon, label, value, color, onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md transition ${onClick ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+  >
     <div className={`p-3 rounded-full ${color}`}>
       <Icon size={24} />
     </div>
@@ -440,6 +443,8 @@ export default function App() {
   const [selectedSister, setSelectedSister] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  // Estado para filtros activos del dashboard
+  const [activeFilter, setActiveFilter] = useState({ label: '', fn: null });
   // Estado para el modal de gestión de compromisos
   const [commitmentSister, setCommitmentSister] = useState(null);
 
@@ -476,7 +481,6 @@ export default function App() {
     }
   };
 
-  // Manejar actualización desde el Modal de Compromiso
   const handleCommitmentUpdate = async (id, updates) => {
     if (db) {
       await updateDoc(doc(db, "hermanas", id), updates);
@@ -484,6 +488,12 @@ export default function App() {
       setSisters(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
     }
     setCommitmentSister(null); // Cerrar modal
+  };
+
+  // Función para aplicar filtros desde el dashboard
+  const applyFilter = (label, filterFn) => {
+    setActiveFilter({ label, fn: filterFn });
+    setView('list');
   };
 
   const stats = useMemo(() => {
@@ -502,12 +512,11 @@ export default function App() {
     return { total, topHobbies, topTalentos, necesitanAtencion, buscandoAmistad, pasos, topExtrañadas, topSolicitadas };
   }, [sisters]);
 
-  // Filtro de compromisos próximos (15 días)
   const upcomingCommitments = useMemo(() => {
     return sisters.filter(s => {
       if (!s.fechaMeta || !s.proximoConvenio) return false;
       const days = getDaysRemaining(s.fechaMeta);
-      return days <= 15; // Vencidos o próximos a vencer en 15 días
+      return days <= 15;
     }).sort((a, b) => new Date(a.fechaMeta) - new Date(b.fechaMeta));
   }, [sisters]);
 
@@ -523,7 +532,11 @@ export default function App() {
     return sisters.filter(s => s.encargadoSeguimiento === myName);
   }, [selectedSister, sisters]);
 
-  const filteredList = sisters.filter(s => (s.nombre + ' ' + s.apellido).toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredList = sisters.filter(s => {
+    const matchesSearch = (s.nombre + ' ' + s.apellido).toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter = activeFilter.fn ? activeFilter.fn(s) : true;
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-10">
@@ -546,11 +559,11 @@ export default function App() {
         {view === 'dashboard' && (
           <div className="animate-in fade-in space-y-6">
             
-            {/* --- SECCIÓN NUEVA: ALERTAS DE COMPROMISOS --- */}
+            {/* ALERTAS DE COMPROMISOS */}
             {upcomingCommitments.length > 0 && (
               <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-xl shadow-sm">
                 <h3 className="text-lg font-bold text-yellow-800 flex items-center gap-2 mb-4">
-                  <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (Registro de los ultimos 15 días)
+                  <AlertTriangle className="animate-pulse" /> Compromisos por Vencer (Alerta de 15 días)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {upcomingCommitments.map(s => {
@@ -567,12 +580,7 @@ export default function App() {
                           <p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p>
                           <p className="text-xs text-slate-400 flex items-center gap-1"><User size={12}/> Apoyo: {s.encargadoSeguimiento || 'Sin asignar'}</p>
                         </div>
-                        <button 
-                          onClick={() => setCommitmentSister(s)}
-                          className="mt-3 w-full py-2 bg-yellow-100 text-yellow-800 font-bold text-sm rounded hover:bg-yellow-200 transition"
-                        >
-                          Gestionar / Actualizar
-                        </button>
+                        <button onClick={() => setCommitmentSister(s)} className="mt-3 w-full py-2 bg-yellow-100 text-yellow-800 font-bold text-sm rounded hover:bg-yellow-200 transition">Gestionar / Actualizar</button>
                       </div>
                     );
                   })}
@@ -581,10 +589,22 @@ export default function App() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <StatCard icon={Users} label="Total Asistencia" value={stats.total} color="bg-pink-100 text-pink-600" />
-              <StatCard icon={Award} label="Hnas Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" />
-              <StatCard icon={Phone} label="Necesitan Contacto" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" />
-              <StatCard icon={Smile} label="Quieren Conocer" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" />
+              <StatCard 
+                icon={Users} label="Total Asistencia" value={stats.total} color="bg-pink-100 text-pink-600" 
+                onClick={() => applyFilter('Total Hermanas', () => true)}
+              />
+              <StatCard 
+                icon={Award} label="Hnas Investidas" value={stats.pasos.investidura} color="bg-purple-100 text-purple-600" 
+                onClick={() => applyFilter('Investidas', s => s.investidura)}
+              />
+              <StatCard 
+                icon={Phone} label="Necesitan Contacto" value={stats.necesitanAtencion} color="bg-orange-100 text-orange-600" 
+                onClick={() => applyFilter('Necesitan Contacto', s => s.personasExtraña && s.personasExtraña.length > 2)}
+              />
+              <StatCard 
+                icon={Smile} label="Quieren Conocer" value={stats.buscandoAmistad} color="bg-green-100 text-green-600" 
+                onClick={() => applyFilter('Quieren Conocer', s => s.quiereConocer && s.quiereConocer.length > 2)}
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -622,12 +642,20 @@ export default function App() {
                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 12}} />
-                        <Tooltip />
-                        <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                        <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} />
+                        <Bar 
+                          dataKey="value" 
+                          fill="#3b82f6" 
+                          radius={[0, 4, 4, 0]} 
+                          barSize={20} 
+                          onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))}
+                          cursor="pointer"
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                    ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
                 </div>
+                <p className="text-xs text-center text-slate-400 mt-2">Haz clic en una barra para filtrar</p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-purple-500"/> Banco de Talentos</h3>
@@ -635,7 +663,11 @@ export default function App() {
                     {stats.topTalentos.length > 0 ? (
                      <ResponsiveContainer width="100%" height="100%">
                        <PieChart>
-                         <Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                         <Pie 
+                            data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
+                            onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))}
+                            cursor="pointer"
+                         >
                            {stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}
                          </Pie>
                          <Tooltip />
@@ -644,6 +676,7 @@ export default function App() {
                      </ResponsiveContainer>
                     ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
                  </div>
+                 <p className="text-xs text-center text-slate-400 mt-2">Haz clic en una sección para filtrar</p>
               </div>
             </div>
           </div>
@@ -653,14 +686,29 @@ export default function App() {
           <div className="animate-in slide-in-from-bottom-2">
             {!selectedSister ? (
               <>
-                <div className="mb-6 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                    <input type="text" placeholder="Buscar hermana..." className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-pink-500 outline-none bg-white shadow-sm"
-                      value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                <div className="mb-6 space-y-4">
+                    {/* BARRA DE BÚSQUEDA */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                        <input type="text" placeholder="Buscar hermana..." className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-pink-500 outline-none bg-white shadow-sm"
+                          value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    {/* INDICADOR DE FILTRO ACTIVO */}
+                    {activeFilter.label && (
+                      <div className="flex items-center justify-between bg-pink-50 text-pink-800 px-4 py-2 rounded-lg border border-pink-100 animate-in fade-in">
+                        <div className="flex items-center gap-2 font-medium">
+                          <Filter size={16}/> Filtro activo: <span className="font-bold">{activeFilter.label}</span>
+                        </div>
+                        <button onClick={() => setActiveFilter({ label: '', fn: null })} className="p-1 hover:bg-pink-100 rounded-full transition text-pink-600">
+                          <X size={18}/>
+                        </button>
+                      </div>
+                    )}
                 </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredList.map(sister => (
+                  {filteredList.length > 0 ? filteredList.map(sister => (
                     <div key={sister.id} onClick={() => {setSelectedSister(sister); setView('details')}} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-pink-200 cursor-pointer transition group">
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-3">
@@ -675,7 +723,12 @@ export default function App() {
                         {sister.investidura && <CheckCircle size={16} className="text-purple-500" title="Investida"/>}
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="col-span-full py-10 text-center text-slate-400">
+                      <p>No se encontraron hermanas con este criterio.</p>
+                      {activeFilter.label && <button onClick={() => setActiveFilter({ label: '', fn: null })} className="mt-2 text-pink-600 font-medium hover:underline">Limpiar filtro</button>}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
