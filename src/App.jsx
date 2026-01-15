@@ -31,7 +31,8 @@ const ALLOWED_EMAILS = [
   "elisaviaca@gmail.com", 
   "cneth151@gmail.com",
   "lizzmontoya.1993@gmail.com",
-  "wallmontenegrox@gmail.com"
+  "wallmontenegrox@gmail.com",
+  "romiris1220@gmail.com"
 ];
 
 // Inicialización de servicios
