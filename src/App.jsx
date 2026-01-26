@@ -4,7 +4,7 @@ import {
   Calendar, CheckCircle, Smile, Award, Phone, User, 
   PieChart as PieIcon, BarChart3, ListFilter, ChevronDown, Check,
   UserPlus, HeartHandshake, ArrowRight, AlertTriangle, LogOut, Lock, AlertCircle, Camera, CheckSquare, XSquare,
-  ClipboardList, RotateCcw, Trash2
+  ClipboardList, RotateCcw, Trash2, Lightbulb
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc, serverTimestamp } from "firebase/firestore";
@@ -38,7 +38,8 @@ const ALLOWED_EMAILS = [
   "cneth151@gmail.com",
   "lizzmontoya.1993@gmail.com",
   "wallmontenegrox@gmail.com",
-  "romiris1220@gmail.com"
+  "romiris1220@gmail.com", 
+  "robertoechenique1@gmail.com"
 ];
 
 // Inicialización de servicios
@@ -54,6 +55,7 @@ const processTags = (data, field) => {
       const tags = item[field].split(',').map(t => t.trim()); 
       tags.forEach(tag => {
         if(tag) {
+            // Normalizar mayúsculas/minúsculas para el conteo
             const cleanTag = tag.charAt(0).toUpperCase() + tag.slice(1).toLowerCase();
             counts[cleanTag] = (counts[cleanTag] || 0) + 1;
         }
@@ -169,6 +171,107 @@ const InputGroup = ({ label, name, value, onChange, type = "text", placeholder =
   </div>
 );
 
+// --- COMPONENTE NUEVO: SELECTOR DE ACTIVIDADES/ETIQUETAS ---
+const TagSelect = ({ label, existingTags, value, onChange, placeholder = "Escribe para buscar o crear..." }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapperRef = useRef(null);
+
+  // Convertir string separado por comas a array
+  const selectedTags = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  // Filtrar sugerencias
+  const filteredOptions = existingTags
+    .filter(tag => tag.toLowerCase().includes(search.toLowerCase()))
+    .filter(tag => !selectedTags.includes(tag)); // No mostrar los ya seleccionados
+
+  const handleAdd = (tag) => {
+    // Normalizar la primera letra mayúscula
+    const normalizedTag = tag.charAt(0).toUpperCase() + tag.slice(1);
+    if (!selectedTags.includes(normalizedTag)) {
+      const newTags = [...selectedTags, normalizedTag];
+      onChange(newTags.join(', '));
+    }
+    setSearch("");
+    setIsOpen(false);
+  };
+
+  const handleRemove = (tagToRemove) => {
+    const newTags = selectedTags.filter(tag => tag !== tagToRemove);
+    onChange(newTags.join(', '));
+  };
+
+  // Click outside to close
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="mb-3 relative" ref={wrapperRef}>
+      <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
+      
+      <div 
+        className="w-full p-2 border border-slate-300 rounded-lg bg-white min-h-[42px] cursor-text flex flex-wrap gap-2 items-center"
+        onClick={() => { setIsOpen(true); }}
+      >
+        {selectedTags.map(tag => (
+          <span key={tag} className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-sm font-medium flex items-center gap-1">
+            {tag}
+            <button 
+              type="button" 
+              onClick={(e) => { e.stopPropagation(); handleRemove(tag); }} 
+              className="hover:text-purple-900"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+        <input 
+          type="text" 
+          className="flex-1 min-w-[100px] outline-none text-sm bg-transparent"
+          placeholder={selectedTags.length === 0 ? placeholder : ""}
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setIsOpen(true); }}
+          onFocus={() => setIsOpen(true)}
+        />
+      </div>
+
+      {isOpen && (search || filteredOptions.length > 0) && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          {search && !filteredOptions.some(opt => opt.toLowerCase() === search.toLowerCase()) && (
+             <div 
+               onClick={() => handleAdd(search)}
+               className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-purple-50 text-purple-700 font-medium border-b border-slate-100"
+             >
+               <Plus size={14}/> Crear "{search}"
+             </div>
+          )}
+          
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((tag, idx) => (
+              <div 
+                key={idx} 
+                onClick={() => handleAdd(tag)} 
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-slate-50 text-slate-700"
+              >
+                <Lightbulb size={14} className="text-slate-400"/> {tag}
+              </div>
+            ))
+          ) : !search && (
+            <p className="text-xs text-slate-400 p-2 text-center">Escribe para crear una nueva...</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SisterSelect = ({ label, sistersList, currentSisterId, value, onChange, multiple = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -260,28 +363,19 @@ const SisterSelect = ({ label, sistersList, currentSisterId, value, onChange, mu
 // --- COMPONENTE: MODAL DE NUEVA TAREA / COMPROMISO ---
 const NewTaskModal = ({ onClose, onSave, sistersList }) => {
   const [beneficiarySearch, setBeneficiarySearch] = useState("");
-  const [selectedSister, setSelectedSister] = useState(null); // Si es del directorio
-  const [isNewProfile, setIsNewProfile] = useState(null); // null = deciding, false = temporal, true = create
-  const [taskData, setTaskData] = useState({
-    description: "",
-    assignee: "",
-    dueDate: "",
-    notes: ""
-  });
+  const [selectedSister, setSelectedSister] = useState(null); 
+  const [isNewProfile, setIsNewProfile] = useState(null); 
+  const [taskData, setTaskData] = useState({ description: "", assignee: "", dueDate: "", notes: "" });
 
-  // Filtrar hermanas para autocompletar
-  const filteredSisters = sistersList.filter(s => 
-    `${s.nombre} ${s.apellido}`.toLowerCase().includes(beneficiarySearch.toLowerCase())
-  );
+  const filteredSisters = sistersList.filter(s => `${s.nombre} ${s.apellido}`.toLowerCase().includes(beneficiarySearch.toLowerCase()));
 
   const handleBeneficiarySelect = (sister) => {
     setSelectedSister(sister);
     setBeneficiarySearch(`${sister.nombre} ${sister.apellido}`);
-    setIsNewProfile(false); // Es existente
+    setIsNewProfile(false); 
   };
 
   const handleSave = () => {
-    // Preparar datos
     const payload = {
       description: taskData.description,
       assignee: taskData.assignee,
@@ -289,8 +383,8 @@ const NewTaskModal = ({ onClose, onSave, sistersList }) => {
       status: 'pending',
       beneficiaryName: beneficiarySearch,
       beneficiaryId: selectedSister ? selectedSister.id : null,
-      isTemporary: !selectedSister && !isNewProfile, // Es temporal si no hay ID y no se quiere crear
-      createNewProfile: isNewProfile, // Flag para crear
+      isTemporary: !selectedSister && !isNewProfile, 
+      createNewProfile: isNewProfile,
       createdAt: new Date().toISOString()
     };
     onSave(payload);
@@ -304,72 +398,32 @@ const NewTaskModal = ({ onClose, onSave, sistersList }) => {
           <button onClick={onClose}><X size={20}/></button>
         </div>
         <div className="p-6 space-y-4">
-          
-          {/* BUSCADOR DE BENEFICIARIA */}
           <div className="relative">
             <label className="block text-sm font-medium text-slate-600 mb-1">Beneficiaria (¿A quién se ayuda?)</label>
             <div className="relative">
-               <input 
-                 type="text" 
-                 className="w-full p-2 pl-9 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
-                 placeholder="Buscar o escribir nombre..."
-                 value={beneficiarySearch}
-                 onChange={(e) => {
-                   setBeneficiarySearch(e.target.value);
-                   setSelectedSister(null); // Reset al escribir
-                   setIsNewProfile(null);
-                 }}
-               />
+               <input type="text" className="w-full p-2 pl-9 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none" placeholder="Buscar o escribir nombre..." value={beneficiarySearch}
+                 onChange={(e) => { setBeneficiarySearch(e.target.value); setSelectedSister(null); setIsNewProfile(null); }} />
                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                {selectedSister && <CheckCircle size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500"/>}
             </div>
-
-            {/* Sugerencias si escribe y no ha seleccionado */}
             {beneficiarySearch && !selectedSister && filteredSisters.length > 0 && (
               <div className="absolute z-10 w-full bg-white border border-slate-200 rounded-b-lg shadow-lg max-h-40 overflow-y-auto">
-                {filteredSisters.map(s => (
-                  <div key={s.id} onClick={() => handleBeneficiarySelect(s)} className="p-2 hover:bg-pink-50 cursor-pointer text-sm flex items-center gap-2">
-                    <User size={14} className="text-slate-400"/> {s.nombre} {s.apellido}
-                  </div>
-                ))}
+                {filteredSisters.map(s => (<div key={s.id} onClick={() => handleBeneficiarySelect(s)} className="p-2 hover:bg-pink-50 cursor-pointer text-sm flex items-center gap-2"><User size={14} className="text-slate-400"/> {s.nombre} {s.apellido}</div>))}
               </div>
             )}
           </div>
-
-          {/* DECISIÓN: CREAR O TEMPORAL */}
           {beneficiarySearch && !selectedSister && filteredSisters.length === 0 && (
             <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg animate-in fade-in">
               <p className="text-xs font-bold text-orange-800 mb-2 flex items-center gap-1"><AlertCircle size={14}/> Este nombre no está en el directorio.</p>
               <div className="flex gap-2">
-                <button 
-                  onClick={() => setIsNewProfile(false)}
-                  className={`flex-1 text-xs py-1.5 px-2 rounded border ${isNewProfile === false ? 'bg-orange-200 border-orange-300 text-orange-900 font-bold' : 'bg-white border-orange-200 text-slate-600'}`}
-                >
-                  Solo anotar (Visita/Temporal)
-                </button>
-                <button 
-                  onClick={() => setIsNewProfile(true)}
-                  className={`flex-1 text-xs py-1.5 px-2 rounded border ${isNewProfile === true ? 'bg-green-100 border-green-300 text-green-900 font-bold' : 'bg-white border-green-200 text-slate-600'}`}
-                >
-                  + Crear Perfil Básico
-                </button>
+                <button onClick={() => setIsNewProfile(false)} className={`flex-1 text-xs py-1.5 px-2 rounded border ${isNewProfile === false ? 'bg-orange-200 border-orange-300 text-orange-900 font-bold' : 'bg-white border-orange-200 text-slate-600'}`}>Solo anotar (Visita/Temporal)</button>
+                <button onClick={() => setIsNewProfile(true)} className={`flex-1 text-xs py-1.5 px-2 rounded border ${isNewProfile === true ? 'bg-green-100 border-green-300 text-green-900 font-bold' : 'bg-white border-green-200 text-slate-600'}`}>+ Crear Perfil Básico</button>
               </div>
             </div>
           )}
-
           <InputGroup label="Descripción del Compromiso" placeholder="Ej: Llevar cena, Entrevista..." value={taskData.description} onChange={(e) => setTaskData({...taskData, description: e.target.value})} />
-          
-          <div className="grid grid-cols-2 gap-4">
-             <SisterSelect label="Encargada" sistersList={sistersList} value={taskData.assignee} onChange={(val) => setTaskData({...taskData, assignee: val})} />
-             <InputGroup label="Fecha Límite" type="date" value={taskData.dueDate} onChange={(e) => setTaskData({...taskData, dueDate: e.target.value})} />
-          </div>
-
-          <div className="flex justify-end pt-4">
-            <button onClick={handleSave} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-slate-800 disabled:opacity-50" disabled={!beneficiarySearch || !taskData.description}>
-              Guardar Tarea
-            </button>
-          </div>
-
+          <div className="grid grid-cols-2 gap-4"><SisterSelect label="Encargada" sistersList={sistersList} value={taskData.assignee} onChange={(val) => setTaskData({...taskData, assignee: val})} /><InputGroup label="Fecha Límite" type="date" value={taskData.dueDate} onChange={(e) => setTaskData({...taskData, dueDate: e.target.value})} /></div>
+          <div className="flex justify-end pt-4"><button onClick={handleSave} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-slate-800 disabled:opacity-50" disabled={!beneficiarySearch || !taskData.description}>Guardar Tarea</button></div>
         </div>
       </div>
     </div>
@@ -386,46 +440,258 @@ const LoginScreen = ({ onLogin, error, loading }) => {
         </div>
         <h1 className="text-3xl font-bold text-slate-800 mb-2">Sociedad de Socorro</h1>
         <p className="text-slate-500 mb-8">Gestión de ministración y progreso personal</p>
-        {error ? <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8 text-left flex gap-3 animate-in slide-in-from-top-4"><AlertCircle className="text-red-500 shrink-0" size={24}/><div><p className="font-bold text-red-800 text-sm">Acceso Denegado</p><p className="text-xs text-red-700 mt-1">{error}</p></div></div> : <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8 text-left flex gap-3"><Lock className="text-blue-500 shrink-0" size={24}/> <p className="text-sm text-blue-800">Esta aplicación es privada. Solo las líderes autorizadas pueden acceder.</p></div>}
-        <button onClick={onLogin} disabled={loading} className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl h-12 disabled:opacity-50">{loading ? <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div> : <><img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="G" className="w-6 h-6" /> Ingresar con Google</>}</button>
+        
+        {error ? (
+           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8 text-left flex gap-3 animate-in slide-in-from-top-4">
+             <AlertCircle className="text-red-500 shrink-0" size={24}/>
+             <div>
+               <p className="font-bold text-red-800 text-sm">Acceso Denegado</p>
+               <p className="text-xs text-red-700 mt-1">{error}</p>
+             </div>
+           </div>
+        ) : (
+           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8 text-left flex gap-3">
+             <Lock className="text-blue-500 shrink-0" size={24}/>
+             <p className="text-sm text-blue-800">
+               Esta aplicación es privada. Solo las líderes autorizadas pueden acceder a los datos.
+             </p>
+           </div>
+        )}
+
+        <button 
+          onClick={onLogin}
+          disabled={loading}
+          className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-3 shadow-lg hover:shadow-xl h-12 disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+          ) : (
+            <>
+              <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="G" className="w-6 h-6" />
+              Ingresar con Google
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
 };
 
-// --- GESTOR DE COMPROMISOS (MODAL) --- (Mismo de antes)
+// --- GESTOR DE COMPROMISOS (MODAL) ---
 const CommitmentModal = ({ sister, onClose, onSave }) => {
   const [status, setStatus] = useState(null); 
-  const [data, setData] = useState({ updateCovenant: false, nextCovenant: '', nextDate: '', reason: '', actions: '', newDate: '', completionDate: new Date().toISOString().split('T')[0] });
+  const [data, setData] = useState({
+    updateCovenant: false, nextCovenant: '', nextDate: '', reason: '', actions: '', newDate: '', completionDate: new Date().toISOString().split('T')[0]
+  });
+
   const covenantKeyMap = { 'Bautismo': 'bautismo', 'Confirmación': 'confirmacion', 'Investidura': 'investidura', 'Sellamiento': 'sellamiento', 'Cta. FamilySearch': 'familySearch', 'Obra Vicaria': 'obraVicaria', 'Bendición Patriarcal': 'bendicionPatriarcal', 'Sacerdocio': 'sacerdocio' };
+
   const handleSave = () => {
-    let updates = {}; const today = new Date().toISOString().split('T')[0];
+    let updates = {};
+    const today = new Date().toISOString().split('T')[0];
+
     if (status === 'fulfilled') {
       const doneDate = data.completionDate || today;
-      if (data.updateCovenant && covenantKeyMap[sister.proximoConvenio]) updates[covenantKeyMap[sister.proximoConvenio]] = true;
+      if (data.updateCovenant && covenantKeyMap[sister.proximoConvenio]) {
+        updates[covenantKeyMap[sister.proximoConvenio]] = true;
+      }
       const log = `${doneDate}: CUMPLIÓ meta de "${sister.proximoConvenio}". \n`;
-      updates.observaciones = (sister.observaciones || '') + '\n' + log; updates.proximoConvenio = data.nextCovenant || ''; updates.fechaMeta = data.nextDate || '';
+      updates.observaciones = (sister.observaciones || '') + '\n' + log;
+      updates.proximoConvenio = data.nextCovenant || '';
+      updates.fechaMeta = data.nextDate || '';
     } else if (status === 'unfulfilled') {
-      updates.fechaMeta = data.newDate; const log = `${today}: REPROGRAMADO "${sister.proximoConvenio}". \nMOTIVO: ${data.reason}. \nACCIONES: ${data.actions}. \n`; updates.observaciones = (sister.observaciones || '') + '\n' + log;
+      updates.fechaMeta = data.newDate;
+      const log = `${today}: REPROGRAMADO "${sister.proximoConvenio}". \nMOTIVO: ${data.reason}. \nACCIONES: ${data.actions}. \n`;
+      updates.observaciones = (sister.observaciones || '') + '\n' + log;
     }
     onSave(sister.id, updates);
   };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="bg-slate-800 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg flex items-center gap-2"><Activity size={20}/> Gestionar Compromiso</h3><button onClick={onClose}><X size={20}/></button></div>
-        <div className="p-6"><div className="mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200"><p className="text-xs text-slate-500 font-bold uppercase mb-1">Meta Actual</p><p className="text-xl font-bold text-slate-800">{sister.proximoConvenio}</p><p className="text-sm text-slate-600 flex items-center gap-2 mt-1"><Calendar size={14}/> Vencimiento: <span className="font-medium">{sister.fechaMeta}</span></p></div>{!status ? (<div className="grid grid-cols-2 gap-4"><button onClick={() => setStatus('fulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-green-500 hover:bg-green-50 transition group"><div className="bg-green-100 p-3 rounded-full text-green-600 group-hover:bg-green-500 group-hover:text-white transition"><CheckSquare size={32}/></div><span className="font-bold text-slate-700">¡Se cumplió!</span></button><button onClick={() => setStatus('unfulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 transition group"><div className="bg-orange-100 p-3 rounded-full text-orange-600 group-hover:bg-orange-500 group-hover:text-white transition"><XSquare size={32}/></div><span className="font-bold text-slate-700">No se cumplió</span></button></div>) : (<div className="space-y-4">{status === 'fulfilled' ? (<div className="animate-in slide-in-from-right"><div className="bg-green-50 text-green-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><CheckCircle size={18}/> ¡Excelente noticia! Actualicemos el historial.</div><InputGroup label="Fecha Real de Cumplimiento" type="date" value={data.completionDate} onChange={e => setData({...data, completionDate: e.target.value})} />{covenantKeyMap[sister.proximoConvenio] && (<label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 mb-4"><input type="checkbox" checked={data.updateCovenant} onChange={e => setData({...data, updateCovenant: e.target.checked})} className="w-5 h-5 accent-pink-600"/><span className="text-sm">Marcar <b>{sister.proximoConvenio}</b> como realizado en su ficha.</span></label>)}<InputGroup label="Nueva Meta" name="nextCovenant" value={data.nextCovenant} onChange={e => setData({...data, nextCovenant: e.target.value})} options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]}/><InputGroup label="Fecha para la nueva meta" type="date" value={data.nextDate} onChange={e => setData({...data, nextDate: e.target.value})} /></div>) : (<div className="animate-in slide-in-from-right"><div className="bg-orange-50 text-orange-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><AlertTriangle size={18}/> Registremos el apoyo necesario.</div><InputGroup label="¿Por qué no se cumplió?" type="textarea" placeholder="Ej: Problemas de salud, falta de transporte..." value={data.reason} onChange={e => setData({...data, reason: e.target.value})} /><InputGroup label="Acciones de apoyo requeridas" placeholder="Ej: Las ministrantes la visitarán..." value={data.actions} onChange={e => setData({...data, actions: e.target.value})} /><InputGroup label="Nueva Fecha Comprometida" type="date" value={data.newDate} onChange={e => setData({...data, newDate: e.target.value})} /></div>)}<div className="flex gap-2 pt-4"><button onClick={() => setStatus(null)} className="flex-1 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg">Atrás</button><button onClick={handleSave} className="flex-1 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 shadow-lg">Guardar Cambios</button></div></div>)}</div></div></div>
+        <div className="bg-slate-800 text-white p-4 flex justify-between items-center">
+          <h3 className="font-bold text-lg flex items-center gap-2"><Activity size={20}/> Gestionar Compromiso</h3>
+          <button onClick={onClose}><X size={20}/></button>
+        </div>
+        <div className="p-6">
+          <div className="mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
+            <p className="text-xs text-slate-500 font-bold uppercase mb-1">Meta Actual</p>
+            <p className="text-xl font-bold text-slate-800">{sister.proximoConvenio}</p>
+            <p className="text-sm text-slate-600 flex items-center gap-2 mt-1"><Calendar size={14}/> Vencimiento: <span className="font-medium">{sister.fechaMeta}</span></p>
+          </div>
+          {!status ? (
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => setStatus('fulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-green-500 hover:bg-green-50 transition group">
+                <div className="bg-green-100 p-3 rounded-full text-green-600 group-hover:bg-green-500 group-hover:text-white transition"><CheckSquare size={32}/></div><span className="font-bold text-slate-700">¡Se cumplió!</span>
+              </button>
+              <button onClick={() => setStatus('unfulfilled')} className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 transition group">
+                <div className="bg-orange-100 p-3 rounded-full text-orange-600 group-hover:bg-orange-500 group-hover:text-white transition"><XSquare size={32}/></div><span className="font-bold text-slate-700">No se cumplió</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {status === 'fulfilled' ? (
+                <div className="animate-in slide-in-from-right">
+                  <div className="bg-green-50 text-green-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><CheckCircle size={18}/> ¡Excelente noticia! Actualicemos el historial.</div>
+                  <InputGroup label="Fecha Real de Cumplimiento" type="date" value={data.completionDate} onChange={e => setData({...data, completionDate: e.target.value})} />
+                  {covenantKeyMap[sister.proximoConvenio] && (
+                    <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 mb-4">
+                      <input type="checkbox" checked={data.updateCovenant} onChange={e => setData({...data, updateCovenant: e.target.checked})} className="w-5 h-5 accent-pink-600"/>
+                      <span className="text-sm">Marcar <b>{sister.proximoConvenio}</b> como realizado en su ficha.</span>
+                    </label>
+                  )}
+                  <InputGroup label="Nueva Meta" name="nextCovenant" value={data.nextCovenant} onChange={e => setData({...data, nextCovenant: e.target.value})} options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]}/>
+                  <InputGroup label="Fecha para la nueva meta" type="date" value={data.nextDate} onChange={e => setData({...data, nextDate: e.target.value})} />
+                </div>
+              ) : (
+                <div className="animate-in slide-in-from-right">
+                  <div className="bg-orange-50 text-orange-800 p-3 rounded-lg mb-4 text-sm font-medium flex items-center gap-2"><AlertTriangle size={18}/> Registremos el apoyo necesario.</div>
+                  <InputGroup label="¿Por qué no se cumplió?" type="textarea" placeholder="Ej: Problemas de salud, falta de transporte..." value={data.reason} onChange={e => setData({...data, reason: e.target.value})} />
+                  <InputGroup label="Acciones de apoyo requeridas" placeholder="Ej: Las ministrantes la visitarán..." value={data.actions} onChange={e => setData({...data, actions: e.target.value})} />
+                  <InputGroup label="Nueva Fecha Comprometida" type="date" value={data.newDate} onChange={e => setData({...data, newDate: e.target.value})} />
+                </div>
+              )}
+              <div className="flex gap-2 pt-4">
+                <button onClick={() => setStatus(null)} className="flex-1 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg">Atrás</button>
+                <button onClick={handleSave} className="flex-1 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 shadow-lg">Guardar Cambios</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 
-// --- FORMULARIO PRINCIPAL (Mismo de antes) ---
+// --- FORMULARIO PRINCIPAL ---
 const SisterForm = ({ onSubmit, onCancel, initialData, allSisters }) => {
-  const [formData, setFormData] = useState(initialData || { nombre: '', apellido: '', telefono: '', direccion: '', familia: '', hobbies: '', talentos: '', actividadesSugeridas: '', amigasCercanas: '', personasExtraña: '', quiereConocer: '', bautismo: false, confirmacion: false, sacerdocio: false, familySearch: false, obraVicaria: false, bendicionPatriarcal: false, investidura: false, sellamiento: false, proximoConvenio: '', fechaMeta: '', encargadoSeguimiento: '', observaciones: '', llamamiento: '', foto: '' });
-  const handleChange = (e) => { const { name, value, type, checked } = e.target; setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); };
+  const [formData, setFormData] = useState(initialData || {
+    nombre: '', apellido: '', telefono: '', direccion: '', familia: '',
+    hobbies: '', talentos: '', actividadesSugeridas: '',
+    amigasCercanas: '', personasExtraña: '', quiereConocer: '',
+    bautismo: false, confirmacion: false, sacerdocio: false, familySearch: false,
+    obraVicaria: false, bendicionPatriarcal: false, investidura: false, sellamiento: false,
+    proximoConvenio: '', fechaMeta: '', encargadoSeguimiento: '', observaciones: '', llamamiento: '',
+    foto: ''
+  });
+
+  // Calcular listas únicas para autocompletado
+  const allActivities = useMemo(() => {
+    const tags = new Set();
+    allSisters.forEach(s => {
+      if (s.actividadesSugeridas) {
+        s.actividadesSugeridas.split(',').forEach(t => {
+          const trimmed = t.trim();
+          if (trimmed) tags.add(trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase());
+        });
+      }
+    });
+    return Array.from(tags);
+  }, [allSisters]);
+
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
   const handleSelectChange = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
-  const handleImageUpload = async (e) => { const file = e.target.files[0]; if (file) { try { const base64 = await compressImage(file); setFormData(prev => ({ ...prev, foto: base64 })); } catch (err) { alert("Error imagen"); } } };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      try {
+        const base64 = await compressImage(file);
+        setFormData(prev => ({ ...prev, foto: base64 }));
+      } catch (err) {
+        console.error("Error al procesar imagen", err);
+        alert("Hubo un error al procesar la imagen.");
+      }
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col"><div className="p-6 bg-pink-600 text-white flex justify-between items-center sticky top-0 z-10 shadow-md"><h2 className="text-xl font-bold flex items-center gap-2"><User /> {initialData ? 'Editar Registro' : 'Nueva Hermana'}</h2><button onClick={onCancel} className="hover:bg-pink-700 p-2 rounded-full transition"><X size={20}/></button></div><form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-6"><div className="bg-slate-50 p-4 rounded-xl border border-slate-200"><h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Smile size={18}/> Datos Personales</h3><div className="flex flex-col items-center mb-6"><div className="w-24 h-24 rounded-full bg-slate-200 mb-3 overflow-hidden border-2 border-slate-300 relative shadow-inner">{formData.foto ? (<img src={formData.foto} alt="Preview" className="w-full h-full object-cover"/>) : (<div className="w-full h-full flex items-center justify-center text-slate-400"><User size={40}/></div>)}</div><label className="cursor-pointer bg-white border border-slate-300 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-2 shadow-sm transition"><Camera size={16}/> {formData.foto ? "Cambiar Foto" : "Subir Foto"}<input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} /></label></div><div className="grid grid-cols-2 gap-4"><InputGroup label="Nombre" name="nombre" value={formData.nombre} onChange={handleChange} /><InputGroup label="Apellido" name="apellido" value={formData.apellido} onChange={handleChange} /></div><InputGroup label="Teléfono" name="telefono" value={formData.telefono} onChange={handleChange} /><InputGroup label="Dirección" name="direccion" value={formData.direccion} onChange={handleChange} /><InputGroup label="Familia con la que vive" name="familia" value={formData.familia} onChange={handleChange} /><InputGroup label="Llamamiento Actual" name="llamamiento" value={formData.llamamiento} onChange={handleChange} /></div><div className="bg-slate-50 p-4 rounded-xl border border-slate-200"><h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Heart size={18}/> Intereses y Social</h3><InputGroup label="Hobbies" name="hobbies" value={formData.hobbies} onChange={handleChange} placeholder="Ej: Jardinería, Lectura" /><InputGroup label="Talentos" name="talentos" value={formData.talentos} onChange={handleChange} placeholder="Ej: Piano, Enseñar" /><InputGroup label="Actividades Sugeridas" name="actividadesSugeridas" value={formData.actividadesSugeridas} onChange={handleChange} type="textarea" /><div className="border-t border-slate-200 pt-4 mt-2"><p className="text-xs font-bold text-slate-500 uppercase mb-3">Relaciones en el Barrio</p><SisterSelect multiple label="Hermanas cercanas" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.amigasCercanas} onChange={(val) => handleSelectChange('amigasCercanas', val)} /><SisterSelect multiple label="Personas que extraña" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.personasExtraña} onChange={(val) => handleSelectChange('personasExtraña', val)} /><SisterSelect multiple label="Le gustaría conocer a" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.quiereConocer} onChange={(val) => handleSelectChange('quiereConocer', val)} /></div></div></div><div className="space-y-6"><div className="bg-blue-50 p-4 rounded-xl border border-blue-200"><h3 className="text-blue-700 font-bold mb-3 flex items-center gap-2"><CheckCircle size={18}/> Senda de los Convenios</h3><div className="grid grid-cols-2 gap-3">{[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicionPatriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (<label key={item.k} className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded transition border border-transparent hover:border-blue-100"><input type="checkbox" name={item.k} checked={formData[item.k]} onChange={handleChange} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600" /><span className="text-sm text-slate-700 font-medium">{item.l}</span></label>))}</div></div><div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200"><h3 className="text-yellow-700 font-bold mb-3 flex items-center gap-2"><Activity size={18}/> Seguimiento de Convenios</h3><InputGroup label="Próximo Convenio / Meta" name="proximoConvenio" value={formData.proximoConvenio} onChange={handleChange} options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]} /><InputGroup label="Fecha Meta" name="fechaMeta" type="date" value={formData.fechaMeta} onChange={handleChange} /><SisterSelect label="Encargada del Seguimiento" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.encargadoSeguimiento} onChange={(val) => handleSelectChange('encargadoSeguimiento', val)} /><InputGroup label="Observaciones Privadas" name="observaciones" type="textarea" value={formData.observaciones} onChange={handleChange} /></div><div className="flex justify-end gap-3 pt-6"><button type="button" onClick={onCancel} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Cancelar</button><button type="submit" className="px-5 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 shadow-lg font-bold flex items-center gap-2"><Save size={18}/> Guardar Datos</button></div></div></form></div></div>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col">
+        <div className="p-6 bg-pink-600 text-white flex justify-between items-center sticky top-0 z-10 shadow-md">
+          <h2 className="text-xl font-bold flex items-center gap-2"><User /> {initialData ? 'Editar Registro' : 'Nueva Hermana'}</h2>
+          <button onClick={onCancel} className="hover:bg-pink-700 p-2 rounded-full transition"><X size={20}/></button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="space-y-6">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Smile size={18}/> Datos Personales</h3>
+              <div className="flex flex-col items-center mb-6">
+                 <div className="w-24 h-24 rounded-full bg-slate-200 mb-3 overflow-hidden border-2 border-slate-300 relative shadow-inner">
+                    {formData.foto ? (
+                      <img src={formData.foto} alt="Preview" className="w-full h-full object-cover"/>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={40}/></div>
+                    )}
+                 </div>
+                 <label className="cursor-pointer bg-white border border-slate-300 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-2 shadow-sm transition">
+                    <Camera size={16}/> {formData.foto ? "Cambiar Foto" : "Subir Foto"}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                 </label>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <InputGroup label="Nombre" name="nombre" value={formData.nombre} onChange={handleChange} />
+                <InputGroup label="Apellido" name="apellido" value={formData.apellido} onChange={handleChange} />
+              </div>
+              <InputGroup label="Teléfono" name="telefono" value={formData.telefono} onChange={handleChange} />
+              <InputGroup label="Dirección" name="direccion" value={formData.direccion} onChange={handleChange} />
+              <InputGroup label="Familia con la que vive" name="familia" value={formData.familia} onChange={handleChange} />
+              <InputGroup label="Llamamiento Actual" name="llamamiento" value={formData.llamamiento} onChange={handleChange} />
+            </div>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <h3 className="text-pink-600 font-bold mb-3 flex items-center gap-2"><Heart size={18}/> Intereses y Social</h3>
+              <InputGroup label="Hobbies" name="hobbies" value={formData.hobbies} onChange={handleChange} placeholder="Ej: Jardinería, Lectura" />
+              <InputGroup label="Talentos" name="talentos" value={formData.talentos} onChange={handleChange} placeholder="Ej: Piano, Enseñar" />
+              
+              {/* NUEVO SELECTOR PARA ACTIVIDADES */}
+              <TagSelect 
+                label="Actividades Sugeridas" 
+                existingTags={allActivities} 
+                value={formData.actividadesSugeridas} 
+                onChange={(val) => handleSelectChange('actividadesSugeridas', val)} 
+                placeholder="Ej: Noche de Juegos, Clase de Pan..."
+              />
+
+              <div className="border-t border-slate-200 pt-4 mt-2">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-3">Relaciones en el Barrio</p>
+                <SisterSelect multiple label="Hermanas cercanas" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.amigasCercanas} onChange={(val) => handleSelectChange('amigasCercanas', val)} />
+                <SisterSelect multiple label="Personas que extraña" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.personasExtraña} onChange={(val) => handleSelectChange('personasExtraña', val)} />
+                <SisterSelect multiple label="Le gustaría conocer a" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.quiereConocer} onChange={(val) => handleSelectChange('quiereConocer', val)} />
+              </div>
+            </div>
+          </div>
+          <div className="space-y-6">
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+              <h3 className="text-blue-700 font-bold mb-3 flex items-center gap-2"><CheckCircle size={18}/> Senda de los Convenios</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[{k:'bautismo', l:'Bautismo'}, {k:'confirmacion', l:'Confirmación'}, {k:'investidura', l:'Investidura'}, {k:'sellamiento', l:'Sellamiento'}, {k:'familySearch', l:'Cta. FamilySearch'}, {k:'obraVicaria', l:'Obra Vicaria'}, {k:'bendicionPatriarcal', l:'Bendición Pat.'}, {k:'sacerdocio', l:'Sacerdocio'}].map(item => (
+                  <label key={item.k} className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded transition border border-transparent hover:border-blue-100">
+                    <input type="checkbox" name={item.k} checked={formData[item.k]} onChange={handleChange} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600" />
+                    <span className="text-sm text-slate-700 font-medium">{item.l}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200">
+              <h3 className="text-yellow-700 font-bold mb-3 flex items-center gap-2"><Activity size={18}/> Seguimiento de Convenios</h3>
+              <InputGroup label="Próximo Convenio / Meta" name="proximoConvenio" value={formData.proximoConvenio} onChange={handleChange} options={["Bautismo", "Confirmación", "Investidura", "Sellamiento", "Ir al Templo", "Curso Autosuficiencia", "Cta. FamilySearch", "Obra Vicaria", "Bendición Patriarcal", "Otro"]} />
+              <InputGroup label="Fecha Meta" name="fechaMeta" type="date" value={formData.fechaMeta} onChange={handleChange} />
+              <SisterSelect label="Encargada del Seguimiento" sistersList={allSisters} currentSisterId={initialData?.id} value={formData.encargadoSeguimiento} onChange={(val) => handleSelectChange('encargadoSeguimiento', val)} />
+              <InputGroup label="Observaciones Privadas" name="observaciones" type="textarea" value={formData.observaciones} onChange={handleChange} />
+            </div>
+            <div className="flex justify-end gap-3 pt-6">
+               <button type="button" onClick={onCancel} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Cancelar</button>
+               <button type="submit" className="px-5 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 shadow-lg font-bold flex items-center gap-2"><Save size={18}/> Guardar Datos</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 };
 
@@ -434,13 +700,13 @@ export default function App() {
   const [googleUser, setGoogleUser] = useState(null); 
   const [loginError, setLoginError] = useState(null); 
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('dashboard'); // dashboard, list, tasks
+  const [view, setView] = useState('dashboard'); 
   const [sisters, setSisters] = useState([]);
-  const [tasks, setTasks] = useState([]); // NUEVO: Estado para tareas
+  const [tasks, setTasks] = useState([]);
   const [selectedSister, setSelectedSister] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [showTaskModal, setShowTaskModal] = useState(false); // NUEVO
-  const [taskView, setTaskView] = useState('pending'); // 'pending' | 'completed'
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskView, setTaskView] = useState('pending');
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState({ label: '', fn: null });
   const [commitmentSister, setCommitmentSister] = useState(null);
@@ -456,10 +722,7 @@ export default function App() {
           setGoogleUser(currentUser);
           setLoginError(null);
           
-          // Escuchar Hermanas
           onSnapshot(collection(db, "hermanas"), (snap) => setSisters(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-          
-          // Escuchar Tareas (NUEVO)
           onSnapshot(collection(db, "tasks"), (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
         } else {
@@ -494,83 +757,43 @@ export default function App() {
   const handleCommitmentUpdate = async (id, updates) => { await updateDoc(doc(db, "hermanas", id), updates); setCommitmentSister(null); };
   const applyFilter = (label, filterFn) => { setActiveFilter({ label, fn: filterFn }); setView('list'); };
 
-  // --- LÓGICA DE NUEVAS TAREAS ---
   const handleSaveTask = async (taskData) => {
     try {
       let finalBeneficiaryId = taskData.beneficiaryId;
-      let finalBeneficiaryName = taskData.beneficiaryName;
-
-      // 1. Si se eligió CREAR PERFIL nuevo
       if (taskData.createNewProfile) {
-        const nameParts = finalBeneficiaryName.split(' ');
-        const newSisterData = {
-          nombre: nameParts[0] || "Nueva",
-          apellido: nameParts.slice(1).join(' ') || "Hermana",
-          observaciones: `Perfil creado desde gestión de compromisos. \nTarea inicial: ${taskData.description}`,
-          encargadoSeguimiento: taskData.assignee,
-          createdAt: new Date().toISOString()
-        };
+        const nameParts = taskData.beneficiaryName.split(' ');
+        const newSisterData = { nombre: nameParts[0] || "Nueva", apellido: nameParts.slice(1).join(' ') || "Hermana", observaciones: `Perfil creado desde tareas. Tarea: ${taskData.description}`, encargadoSeguimiento: taskData.assignee, createdAt: new Date().toISOString() };
         const docRef = await addDoc(collection(db, "hermanas"), newSisterData);
         finalBeneficiaryId = docRef.id;
-      } 
-      // 2. Si es hermana EXISTENTE, actualizar su perfil
-      else if (finalBeneficiaryId) {
+      } else if (finalBeneficiaryId) {
         const sisterRef = doc(db, "hermanas", finalBeneficiaryId);
         const sisterDoc = sisters.find(s => s.id === finalBeneficiaryId);
-        const newNote = `\n[${new Date().toISOString().split('T')[0]}] Nueva Tarea Asignada: ${taskData.description} (Encargada: ${taskData.assignee})`;
-        await updateDoc(sisterRef, {
-          observaciones: (sisterDoc?.observaciones || "") + newNote,
-          encargadoSeguimiento: taskData.assignee
-        });
+        await updateDoc(sisterRef, { observaciones: (sisterDoc?.observaciones || "") + `\n[${new Date().toISOString().split('T')[0]}] Tarea: ${taskData.description} (${taskData.assignee})`, encargadoSeguimiento: taskData.assignee });
       }
-
-      // 3. Guardar la tarea en colección tasks
-      await addDoc(collection(db, "tasks"), {
-        ...taskData,
-        beneficiaryId: finalBeneficiaryId,
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
-
+      await addDoc(collection(db, "tasks"), { ...taskData, beneficiaryId: finalBeneficiaryId, status: 'pending', createdAt: new Date().toISOString() });
       setShowTaskModal(false);
-    } catch (err) {
-      console.error(err);
-      alert("Error al guardar la tarea");
-    }
+    } catch (err) { alert("Error al guardar tarea"); }
   };
 
-  const toggleTaskStatus = async (task) => {
-    const newStatus = task.status === 'pending' ? 'completed' : 'pending';
-    await updateDoc(doc(db, "tasks", task.id), { status: newStatus });
-  };
+  const toggleTaskStatus = async (task) => { await updateDoc(doc(db, "tasks", task.id), { status: task.status === 'pending' ? 'completed' : 'pending' }); };
+  const deleteTask = async (id) => { if(confirm("¿Borrar tarea?")) await deleteDoc(doc(db, "tasks", id)); };
 
-  const deleteTask = async (id) => {
-    if(confirm("¿Borrar esta tarea del historial?")) await deleteDoc(doc(db, "tasks", id));
-  };
-
-  // --- CALCULOS DE DASHBOARD ---
   const stats = useMemo(() => {
     const total = sisters.length;
     const topHobbies = processTags(sisters, 'hobbies');
     const topTalentos = processTags(sisters, 'talentos');
+    // NUEVO: Top Actividades
+    const topActivities = processTags(sisters, 'actividadesSugeridas');
     const topExtrañadas = processMentions(sisters, 'personasExtraña');
     const topSolicitadas = processMentions(sisters, 'quiereConocer');
     const necesitanAtencion = sisters.filter(s => s.personasExtraña && s.personasExtraña.split(',').length >= 3).length;
     const buscandoAmistad = sisters.filter(s => s.quiereConocer && s.quiereConocer.split(',').length >= 3).length;
-    const pasos = {
-      bautismo: sisters.filter(s => s.bautismo).length,
-      investidura: sisters.filter(s => s.investidura).length,
-      sellamiento: sisters.filter(s => s.sellamiento).length
-    };
-    return { total, topHobbies, topTalentos, necesitanAtencion, buscandoAmistad, pasos, topExtrañadas, topSolicitadas };
+    const pasos = { b: sisters.filter(s => s.bautismo).length, i: sisters.filter(s => s.investidura).length, s: sisters.filter(s => s.sellamiento).length };
+    return { total, topHobbies, topTalentos, topActivities, necesitanAtencion, buscandoAmistad, pasos, topExtrañadas, topSolicitadas };
   }, [sisters]);
 
   const upcomingCommitments = useMemo(() => {
-    return sisters.filter(s => {
-      if (!s.fechaMeta || !s.proximoConvenio) return false;
-      const days = getDaysRemaining(s.fechaMeta);
-      return days <= 15;
-    }).sort((a, b) => new Date(a.fechaMeta) - new Date(b.fechaMeta));
+    return sisters.filter(s => s.fechaMeta && s.proximoConvenio && getDaysRemaining(s.fechaMeta) <= 15).sort((a, b) => new Date(a.fechaMeta) - new Date(b.fechaMeta));
   }, [sisters]);
 
   const filteredList = sisters.filter(s => {
@@ -581,7 +804,6 @@ export default function App() {
 
   const filteredTasks = tasks.filter(t => t.status === taskView).sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate));
 
-  // --- HELPERS PARA VISTAS ---
   const relatedSisters = useMemo(() => {
     if(!selectedSister) return [];
     const myHobbies = selectedSister.hobbies ? selectedSister.hobbies.toLowerCase().split(',').map(s=>s.trim()) : [];
@@ -610,7 +832,7 @@ export default function App() {
             <button onClick={() => setView('tasks')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'tasks' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ClipboardList size={16} className="inline mr-1"/> Compromisos</button>
             <button onClick={() => setView('list')} className={`px-2 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium transition ${view === 'list' || view === 'details' ? 'bg-white text-pink-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><ListFilter size={16} className="inline mr-1"/> Directorio</button>
           </div>
-          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg" title="Agregar Nueva"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
+          <button onClick={() => { setSelectedSister(null); setShowForm(true); }} className="bg-pink-600 text-white p-2 sm:px-3 sm:py-1.5 rounded-lg font-bold hover:bg-pink-700 flex items-center gap-2 shadow-lg"><Plus size={20} /> <span className="hidden md:inline">Nueva</span></button>
           <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200">
              <img src={googleUser.photoURL || "https://ui-avatars.com/api/?name="+googleUser.displayName} alt="U" className="w-8 h-8 rounded-full border border-pink-200 shadow-sm" />
              <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition"><LogOut size={18}/></button>
@@ -619,54 +841,33 @@ export default function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6">
-        
-        {/* --- VISTA DE TAREAS (NUEVO) --- */}
         {view === 'tasks' && (
           <div className="animate-in fade-in space-y-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold text-slate-800">Mesa de Gestión</h2>
               <button onClick={() => setShowTaskModal(true)} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-lg"><Plus size={18}/> Nuevo Compromiso</button>
             </div>
-
-            {/* Tabs */}
             <div className="flex border-b border-slate-200 mb-6">
               <button onClick={() => setTaskView('pending')} className={`pb-2 px-4 font-medium transition ${taskView === 'pending' ? 'text-pink-600 border-b-2 border-pink-600' : 'text-slate-500 hover:text-slate-700'}`}>Pendientes ({tasks.filter(t=>t.status==='pending').length})</button>
               <button onClick={() => setTaskView('completed')} className={`pb-2 px-4 font-medium transition ${taskView === 'completed' ? 'text-pink-600 border-b-2 border-pink-600' : 'text-slate-500 hover:text-slate-700'}`}>Historial ({tasks.filter(t=>t.status==='completed').length})</button>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredTasks.length > 0 ? filteredTasks.map(task => (
                 <div key={task.id} className={`bg-white p-4 rounded-xl shadow-sm border border-l-4 transition flex flex-col justify-between ${task.status === 'completed' ? 'border-slate-200 border-l-slate-400 opacity-70' : 'border-slate-100 border-l-pink-500'}`}>
                   <div>
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-bold text-slate-800">{task.beneficiaryName}</span>
-                      {task.status === 'pending' && <Badge color="bg-pink-100 text-pink-700">{getDaysRemaining(task.dueDate)}d</Badge>}
-                    </div>
+                    <div className="flex justify-between items-start mb-2"><span className="font-bold text-slate-800">{task.beneficiaryName}</span>{task.status === 'pending' && <Badge color="bg-pink-100 text-pink-700">{getDaysRemaining(task.dueDate)}d</Badge>}</div>
                     <p className="text-sm text-slate-700 font-medium mb-1">{task.description}</p>
-                    <div className="text-xs text-slate-500 space-y-1">
-                      <p className="flex items-center gap-1"><User size={12}/> Encargada: {task.assignee || "Sin asignar"}</p>
-                      <p className="flex items-center gap-1"><Calendar size={12}/> Límite: {task.dueDate || "Sin fecha"}</p>
-                    </div>
+                    <div className="text-xs text-slate-500 space-y-1"><p className="flex items-center gap-1"><User size={12}/> Encargada: {task.assignee || "Sin asignar"}</p><p className="flex items-center gap-1"><Calendar size={12}/> Límite: {task.dueDate || "Sin fecha"}</p></div>
                   </div>
                   <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
-                    {task.status === 'completed' ? (
-                      <>
-                        <button onClick={() => deleteTask(task.id)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={18}/></button>
-                        <button onClick={() => toggleTaskStatus(task)} className="text-blue-500 hover:text-blue-700 font-medium text-sm flex items-center gap-1"><RotateCcw size={16}/> Restaurar</button>
-                      </>
-                    ) : (
-                      <button onClick={() => toggleTaskStatus(task)} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-green-200 flex items-center gap-1"><Check size={16}/> Marcar Listo</button>
-                    )}
+                    {task.status === 'completed' ? (<><button onClick={() => deleteTask(task.id)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={18}/></button><button onClick={() => toggleTaskStatus(task)} className="text-blue-500 hover:text-blue-700 font-medium text-sm flex items-center gap-1"><RotateCcw size={16}/> Restaurar</button></>) : (<button onClick={() => toggleTaskStatus(task)} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-green-200 flex items-center gap-1"><Check size={16}/> Marcar Listo</button>)}
                   </div>
                 </div>
-              )) : (
-                <div className="col-span-full py-10 text-center text-slate-400 italic">No hay compromisos en esta sección.</div>
-              )}
+              )) : <div className="col-span-full py-10 text-center text-slate-400 italic">No hay compromisos en esta sección.</div>}
             </div>
           </div>
         )}
 
-        {/* --- VISTA DASHBOARD --- */}
         {view === 'dashboard' && (
           <div className="animate-in fade-in space-y-6">
             {upcomingCommitments.length > 0 && (
@@ -678,16 +879,8 @@ export default function App() {
                     return (
                       <div key={s.id} className="bg-white p-4 rounded-lg shadow-sm border border-yellow-100 flex flex-col justify-between hover:border-yellow-300 transition">
                         <div className="flex items-start gap-3">
-                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0 shadow-inner">
-                              {s.foto ? <img src={s.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={20}/></div>}
-                           </div>
-                           <div className="w-full">
-                              <div className="flex justify-between items-start mb-1">
-                                <span className="font-bold text-slate-800 leading-tight">{s.nombre} {s.apellido}</span>
-                                <Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{days < 0 ? `${Math.abs(days)}d atraso` : `${days}d`}</Badge>
-                              </div>
-                              <p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p>
-                           </div>
+                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0 shadow-inner">{s.foto ? <img src={s.foto} alt="foto" className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={20}/></div>}</div>
+                           <div className="w-full"><div className="flex justify-between items-start mb-1"><span className="font-bold text-slate-800 leading-tight">{s.nombre} {s.apellido}</span><Badge color={days < 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{days < 0 ? `${Math.abs(days)}d atraso` : `${days}d`}</Badge></div><p className="text-sm text-slate-600 mb-1">Meta: <b>{s.proximoConvenio}</b></p></div>
                         </div>
                         <button onClick={() => setCommitmentSister(s)} className="mt-3 w-full py-2 bg-yellow-100 text-yellow-800 font-bold text-sm rounded hover:bg-yellow-200 transition">Gestionar / Actualizar</button>
                       </div>
@@ -707,66 +900,53 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                   <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><UserPlus className="text-blue-500"/> Top: Quieren Conocerlas</h3>
-                  <div className="space-y-3">
-                    {stats.topSolicitadas.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-blue-50/50">
-                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
-                        <Badge color="bg-blue-200 text-blue-800">{item.value} solicitudes</Badge>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="space-y-3">{stats.topSolicitadas.map((item, idx) => (<div key={idx} className="flex justify-between items-center p-2 rounded bg-blue-50/50"><span className="font-medium text-slate-700">#{idx+1} {item.name}</span><Badge color="bg-blue-200 text-blue-800">{item.value} solicitudes</Badge></div>))}</div>
                </div>
                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                   <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><HeartHandshake className="text-pink-500"/> Top: Las más Extrañadas</h3>
-                  <div className="space-y-3">
-                    {stats.topExtrañadas.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 rounded bg-pink-50/50">
-                        <span className="font-medium text-slate-700">#{idx+1} {item.name}</span>
-                        <Badge color="bg-pink-200 text-pink-800">{item.value} menciones</Badge>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="space-y-3">{stats.topExtrañadas.map((item, idx) => (<div key={idx} className="flex justify-between items-center p-2 rounded bg-pink-50/50"><span className="font-medium text-slate-700">#{idx+1} {item.name}</span><Badge color="bg-pink-200 text-pink-800">{item.value} menciones</Badge></div>))}</div>
                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Smile className="text-blue-500"/> Intereses Comunes</h3>
-                <div className="h-64">
-                   {stats.topHobbies.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart layout="vertical" data={stats.topHobbies} margin={{left: 20}}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                        <XAxis type="number" hide />
-                        <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 12}} />
-                        <Tooltip cursor={{fill: 'transparent'}} />
-                        <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                   ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
-                </div>
+                <div className="h-64"><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={stats.topHobbies} margin={{left: 20}}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} /><XAxis type="number" hide /><YAxis dataKey="name" type="category" width={80} tick={{fontSize: 12}} /><Tooltip /><Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} onClick={(data) => applyFilter(`Hobby: ${data.name}`, s => s.hobbies && s.hobbies.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer" /></BarChart></ResponsiveContainer></div>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-purple-500"/> Banco de Talentos</h3>
-                 <div className="h-64">
-                    {stats.topTalentos.length > 0 ? (
-                     <ResponsiveContainer width="100%" height="100%">
-                       <PieChart>
-                         <Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer">
-                           {stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}
-                         </Pie>
-                         <Tooltip />
-                         <Legend verticalAlign="bottom" height={36}/>
-                       </PieChart>
-                     </ResponsiveContainer>
-                    ) : <p className="text-center text-slate-400 mt-20">Faltan datos</p>}
-                 </div>
+                 <div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={stats.topTalentos} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(data) => applyFilter(`Talento: ${data.name}`, s => s.talentos && s.talentos.toLowerCase().includes(data.name.toLowerCase()))} cursor="pointer">{stats.topTalentos.map((entry, index) => <Cell key={`cell-${index}`} fill={['#a855f7', '#d946ef', '#ec4899', '#f43f5e'][index % 4]} />)}</Pie><Tooltip /><Legend verticalAlign="bottom" height={36}/></PieChart></ResponsiveContainer></div>
               </div>
             </div>
+
+            {/* NUEVA GRÁFICA DE ACTIVIDADES SUGERIDAS */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Lightbulb className="text-yellow-500"/> Actividades Sugeridas (Top)</h3>
+                <div className="h-64">
+                   {stats.topActivities.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart layout="vertical" data={stats.topActivities} margin={{left: 20}}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
+                        <Tooltip />
+                        <Bar 
+                          dataKey="value" 
+                          fill="#eab308" 
+                          radius={[0, 4, 4, 0]} 
+                          barSize={20} 
+                          onClick={(data) => applyFilter(`Actividad: ${data.name}`, s => s.actividadesSugeridas && s.actividadesSugeridas.toLowerCase().includes(data.name.toLowerCase()))} 
+                          cursor="pointer" 
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                   ) : <p className="text-center text-slate-400 mt-20">Faltan datos de actividades.</p>}
+                </div>
+            </div>
+
           </div>
         )}
 
-        {/* --- VISTA DIRECTORIO --- */}
         {(view === 'list' || view === 'details') && (
           <div className="animate-in slide-in-from-bottom-2">
             {!selectedSister ? (
@@ -839,6 +1019,10 @@ export default function App() {
                              </ul>
                            ) : <p className="text-xs text-blue-400 italic">No se encontraron coincidencias.</p>}
                         </div>
+                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+                           <h4 className="font-bold text-yellow-800 text-sm mb-2 flex items-center gap-2"><Lightbulb size={14}/> Intereses en Actividades:</h4>
+                           <p className="text-sm text-slate-700">{selectedSister.actividadesSugeridas || "Ninguna registrada"}</p>
+                        </div>
                     </div>
                     <div className="md:col-span-2 space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -863,7 +1047,7 @@ export default function App() {
                         </div>
                         <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 flex flex-col sm:flex-row gap-4 justify-between items-start">
                             <div>
-                                <h4 className="font-bold text-yellow-800 mb-1">Próxima Meta Personal</h4>
+                                <h4 className="font-bold text-yellow-800 mb-1">Próxima Meta</h4>
                                 <p className="text-lg font-bold text-slate-800">{selectedSister.proximoConvenio || "Sin definir"}</p>
                                 <p className="text-sm text-yellow-700 mt-1 flex items-center gap-1"><Calendar size={14}/> {selectedSister.fechaMeta || "--"}</p>
                             </div>
@@ -877,7 +1061,7 @@ export default function App() {
                         </div>
                         {selectedSister.observaciones && (
                           <div className="mt-4 p-4 bg-slate-50 rounded border border-slate-200">
-                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Historial y Observaciones</h4>
+                             <h4 className="font-bold text-slate-600 text-xs uppercase mb-2">Observaciones</h4>
                              <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{selectedSister.observaciones}</p>
                           </div>
                         )}
